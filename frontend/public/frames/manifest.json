@@ -1,0 +1,7 @@
+{
+  "count": 60,
+  "width": 1600,
+  "height": 900,
+  "pattern": "core_%03d.webp",
+  "generated": "procedural-svg"
+}

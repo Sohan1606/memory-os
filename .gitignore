@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Runtime data (Chroma, SQLite, LangGraph checkpoints)
+.data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Secrets and local config
+.env
+.env.local
+.env.*.local
+*.pem
+secrets/
+
+# Logs
+*.log
+logs/
+
+# QA artefacts
+tests/*.png
+
+# OS
+.DS_Store
+Thumbs.db

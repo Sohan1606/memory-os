@@ -1,0 +1,15 @@
+# OPTIONAL extras. None of these are installed or required by demo mode.
+# Install only if you want the corresponding capability; the backend reports
+# each as NOT CONFIGURED until it is genuinely importable.
+
+# Real model-driven tool calling via a local Ollama server (free, local):
+# langchain-ollama==1.1.1
+
+# Real model-driven tool calling via OpenAI (PAID — requires your own API key):
+# langchain-openai==1.2.1
+
+# Server-side speech transcription (free, local, ~150MB model download):
+# faster-whisper==1.2.0
+
+# LLM-driven memory extraction (requires one of the LLM providers above):
+# langmem==0.0.30

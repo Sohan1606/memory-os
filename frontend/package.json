@@ -1,0 +1,30 @@
+{
+  "name": "memory-os-showcase",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MEMORY//OS - cinematic frontend for a local-first AI agent with long-term memory.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "frames": "node scripts/generate-frames.mjs"
+  },
+  "dependencies": {
+    "next": "15.5.25",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "framer-motion": "11.18.2",
+    "lucide-react": "0.474.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.1",
+    "@types/react": "19.0.8",
+    "@types/react-dom": "19.0.3",
+    "eslint": "8.57.1",
+    "eslint-config-next": "15.5.25",
+    "sharp": "0.33.5",
+    "typescript": "5.7.3"
+  }
+}

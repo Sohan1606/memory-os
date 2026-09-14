@@ -1,0 +1,32 @@
+# MEMORY//OS backend — pinned runtime dependencies.
+# Demo mode requires no API keys and no paid services.
+
+# --- API layer ---
+fastapi==0.141.1
+uvicorn==0.52.4
+python-multipart==0.0.20        # required at import time by the voice upload route
+pydantic==2.13.4
+pydantic-settings==2.15.0
+
+# --- Agent: LangGraph + LangChain ---
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-sqlite==3.1.1
+langgraph-prebuilt==1.1.0
+langgraph-sdk==0.4.4
+langchain==1.4.0
+langchain-core==1.6.3
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
+# Local LLM provider (Ollama). Required for REAL AGENT mode; the app still runs
+# in deterministic demo mode without a running Ollama server.
+langchain-ollama==1.1.0
+ollama==0.6.2
+
+# --- Vector memory: Chroma + local ONNX MiniLM embeddings ---
+chromadb==1.5.9
+onnxruntime==1.30.0
+
+# --- Tests ---
+pytest==9.0.3
+httpx==0.28.1
