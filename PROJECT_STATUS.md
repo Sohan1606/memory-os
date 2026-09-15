@@ -10,15 +10,19 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Backend test suite | **PASS** | `python -m pytest` → **139 tests, 0 failures, 0 errors, 1 skipped** (v7 74 + v8 65) |
+| Backend test suite | **PASS** | `python -m pytest` → **412 passed, 10 skipped** (V8.1 baseline of 179/8 fully preserved; V8.2 adds 241 tests) |
 | Clean install from ZIP | **PASS** | extracted to a fresh dir: `npm ci` (330 packages), lint, typecheck, build, fresh venv + pytest, browser QA — all from the extracted copy |
 | Frontend lint | **PASS** | `npm run lint` → `✔ No ESLint warnings or errors` |
 | Frontend typecheck | **PASS** | `npm run typecheck` → clean (strict + `noUnusedLocals`/`noUnusedParameters`) |
-| Frontend production build | **PASS** | `npm run build` → `✓ Compiled successfully`, 8/8 static pages (adds `/observatory`) |
+| Frontend production build | **PASS** | `npm run build` → `✓ Compiled successfully`, 6/6 static pages |
 | Backend over real HTTP | **PASS** | uvicorn on `0.0.0.0:8000`; health, chat, search, CRUD exercised with curl |
 | Frontend ↔ backend integration | **PASS** | `/api/*` rewrite verified end to end from the browser |
 | Browser QA — v7 (Playwright) | **PASS** | `tests/browser_qa.py` → 14/14, **0 console errors** |
 | Browser QA — v8 Observatory | **PASS** | `tests/observatory_qa.py` → **25/25**, 0 console errors |
+| Browser QA — v8.2 (Playwright) | **PASS** | 5 pages × desktop 1440×900 and mobile 390×844, **0 console errors**, 0 page errors |
+| V8.2 restart persistence | **PASS** | memories, influences, arbitrations, intent transitions, execution traces and focus all survive a backend restart |
+| V8.2 degradation | **PASS** | unreachable Ollama → `DETERMINISTIC FALLBACK`; vision `NOT_CONFIGURED`; no model capability claimed |
+| Real Ollama model path | **NOT VERIFIABLE IN THIS ENVIRONMENT** | No Ollama server reachable. Model-path tests use a scripted model; real-model tests skip with an explicit reason rather than passing silently |
 | Mobile layout (390 px) | **PASS** | 0 px horizontal overflow on landing and workspace |
 | Reduced motion | **PASS** | full content renders; sequence pins to a static frame |
 | No remote runtime assets | **PASS** | system fonts, locally generated frames, no CDN |
@@ -111,3 +115,37 @@ GET /api/health
 | ROI (time saved / cost avoided) | **INSUFFICIENT EVIDENCE** | Not measurable here; never estimated |
 | Model tool calling | **DEGRADED** | No tool-calling model configured; deterministic planner active |
 | LangMem / Whisper | **NOT CONFIGURED** | Not installed; honest fallbacks active |
+
+## V8.2 — Cognitive Core
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Capability detection + routing (§3) | **PASS** | `test_v82_capabilities.py` — 19 tests; `UNKNOWN` never satisfies a requirement |
+| Model-driven agent loop + tracing (§4) | **PASS** | `test_v82_agent_loop.py` — 17 tests; depth cap, timeout, duplicates, cancellation |
+| Canonical context builder (§5) | **PASS** | `test_v82_context_focus.py`; bounded, ranked, declared truncation |
+| Memory arbitration V2 (§6) | **PASS** | `test_v82_arbitration.py` — 18 tests, 9 weighted factors, persisted records |
+| Retrieval quality (§7) | **PASS** | quarantined/contradicted memories excluded **and reported** |
+| Causal chain (§8) | **PASS** | `test_v82_influence.py` — retrieval ≠ influence; no evidence ⇒ no reputation change |
+| Continuity engine (§9) | **PASS** | 9 grounded reasons, 45-day dormancy |
+| Intent evolution V2 (§10) | **PASS** | questions never create intent; emerging ≠ confirmed |
+| Need detection V2 (§11) | **PASS** | always a hypothesis; accuracy is `INSUFFICIENT EVIDENCE` without feedback |
+| Prediction → learning (§13) | **PASS** | `test_v82_prediction_regret.py`; unresolved observations leave predictions open |
+| Consequence / regret (§14) | **PASS** | evidence-based or `INSUFFICIENT EVIDENCE`; never a fabricated number |
+| Adaptive policy (§15) | **PASS** | 8 dimensions, evidence-carrying, revertible |
+| Context fabric (§16) | **PARTIAL BY DESIGN** | permission-aware shape, **no connectors**; `NOT CONNECTED` is a valid end state |
+| Per-capability trust (§17) | **PASS** | `reliability: null` below `MIN_EVIDENCE=3` |
+| User-controlled cognition (§19) | **PASS** | `test_v82_user_control.py` — 21 tests; refuses to guess destructive targets |
+| Autonomy governor V2 (§20) | **PASS** | ACT / ASK / WAIT / DO_NOTHING / BLOCKED, `decision` kept compatible |
+| Object permanence (§21) | **PASS** | stable IDs, 30-min TTL, ambiguity refused |
+| Observatory surfaces | **PASS** | 4 new panels; 0 console errors desktop + mobile |
+| Explanation endpoints (§23) | **PASS** | evidence-cited; no chain-of-thought exposed |
+
+### Honest limitations in V8.2
+
+- The real-model path **cannot be verified in this environment** (no Ollama).
+  It is covered by scripted-model tests; the real-model tests skip loudly.
+- No external connectors exist. Calendar/email/files are `NOT CONNECTED`.
+- No vision without a vision model — `NOT_CONFIGURED`, never a guess.
+- No cross-user learning; everything is per-user-namespace.
+- Regret is scored from evidence the caller supplies; the system does not
+  independently investigate.

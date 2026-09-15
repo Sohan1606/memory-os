@@ -262,3 +262,146 @@ export interface PerceptionResult {
   checksum: string | null;
   created_at: string;
 }
+
+/* ------------------------------------------------------------------ V8.2 */
+
+/** One model capability, with the reason the state was assigned. */
+export interface CapabilityReport {
+  name: string;
+  state: "SUPPORTED" | "NOT_SUPPORTED" | "UNKNOWN";
+  reason: string;
+}
+
+export interface CapabilitiesResponse {
+  provider: string;
+  model: string | null;
+  available: boolean;
+  capabilities: CapabilityReport[];
+}
+
+/** How one task class will actually execute right now. */
+export interface RouteDecision {
+  task: string;
+  mode: "MODEL_TOOLS" | "MODEL_STRUCTURED" | "MODEL" | "DETERMINISTIC"
+      | "NOT_CONFIGURED";
+  uses_model: boolean;
+  degraded: boolean;
+  missing: string[];
+  reason: string;
+}
+
+/** One recorded step of the agent's execution. */
+export interface ExecutionStep {
+  stage: string;
+  detail: string | null;
+  at: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface ArbitrationRecord {
+  id: string;
+  query: string | null;
+  winner_id: string | null;
+  reason: string;
+  uncertainty: number;
+  conflict: boolean;
+  created_at: string;
+}
+
+export interface MemoryInfluence {
+  id: string;
+  memory_id: string;
+  influenced_kind: string;
+  influenced_id: string;
+  how: string;
+  outcome_verdict: string | null;
+  reputation_effect: string | null;
+  created_at: string;
+}
+
+export interface MemoryImpact {
+  memory_id: string;
+  influence_count: number;
+  resolved_count: number;
+  supported: number;
+  contradicted: number;
+  unresolved: number;
+  summary: string;
+  reputation: Record<string, unknown>;
+}
+
+/** A learned behavioural policy, always carrying its evidence. */
+export interface CognitivePolicy {
+  key: string;
+  value: string;
+  confidence: number;
+  is_default: boolean;
+  evidence_count: number;
+  evidence?: { evidence: string; at: string }[];
+  explanation?: string;
+}
+
+/** Per-capability trust. `reliability` is null below the evidence threshold. */
+export interface CapabilityTrustEntry {
+  capability: string;
+  task_class: string;
+  successes: number;
+  failures: number;
+  total: number;
+  reliability: number | null;
+  label: "RELIABLE" | "MIXED" | "UNRELIABLE" | "SUPPRESSED"
+       | "INSUFFICIENT EVIDENCE";
+  detail: string;
+}
+
+export interface IntentTransition {
+  id: string;
+  intent_id: string;
+  from_status: string | null;
+  to_status: string;
+  confidence: number;
+  uncertainty: number;
+  changed_because: string | null;
+  evidence: string[];
+  created_at: string;
+}
+
+export interface NeedHypothesis {
+  id: string;
+  need: string;
+  confidence: number;
+  signals: string[];
+  utterance: string;
+  was_correct: number | null;
+  evaluated: boolean;
+  created_at: string;
+}
+
+export interface ContinuityItem {
+  id: string;
+  kind: string;
+  summary: string;
+  reason: string;
+  status: string;
+  relevance?: number;
+  created_at: string;
+}
+
+export interface FocusEntry {
+  subject_kind: string;
+  subject_id: string;
+  label: string | null;
+  session_id: string;
+  updated_at: string;
+}
+
+/** Result of a natural-language cognitive command. */
+export interface ControlResult {
+  command: string;
+  matched: string;
+  applied: boolean;
+  summary: string;
+  requires?: string;
+  memory_id?: string;
+  policy_key?: string;
+}

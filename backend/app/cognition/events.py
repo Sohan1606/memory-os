@@ -63,11 +63,32 @@ MISSION = ("mission.created", "mission.updated", "mission.progressed",
            "mission.completed", "mission.abandoned")
 EXPERIMENT = ("experiment.proposed", "experiment.started", "experiment.concluded")
 
+# --------------------------------------------------------------- v8.2 events
+# Cognitive-core additions. Every one of these is emitted from work that
+# genuinely happened; none are decorative.
+CONTEXT_BUILD = ("context.assembled", "context.truncated", "context.degraded")
+ARBITRATION = ("arbitration.resolved", "arbitration.conflict")
+INFLUENCE = ("memory.influenced", "memory.impact")
+EXECUTION = ("execution.model_call", "execution.tool_decision",
+             "execution.tool_result", "execution.model_revision",
+             "execution.final_response", "execution.cancelled",
+             "execution.limit_reached")
+ROUTING = ("routing.selected", "routing.degraded", "routing.not_configured")
+CONTINUITY = ("continuity.resumed", "continuity.item_opened",
+              "continuity.item_closed")
+POLICY_V82 = ("policy.reverted",)
+TRUST_V82 = ("trust.capability_changed", "trust.recovered")
+FOCUS = ("focus.changed", "focus.resolved")
+NEED_V82 = ("need.evaluated",)
+CONTROL = ("control.command", "control.refused")
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
     + SKILL + POLICY + AUTONOMY + CONTEXT + RECOVERY
     + EXTRACTION + PERCEPTION + MAINTENANCE + MISSION + EXPERIMENT
+    + CONTEXT_BUILD + ARBITRATION + INFLUENCE + EXECUTION + ROUTING
+    + CONTINUITY + POLICY_V82 + TRUST_V82 + FOCUS + NEED_V82 + CONTROL
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -159,6 +180,35 @@ LABELS: dict[str, str] = {
     "context.expired": "Context expired",
     "recovery.started": "Recovering from a failure",
     "recovery.completed": "Recovered",
+    # ---------------------------------------------------------------- v8.2
+    "context.assembled": "Gathered the context for this message",
+    "context.truncated": "Trimmed context to stay within limits",
+    "context.degraded": "Some context was unavailable",
+    "arbitration.resolved": "Chose between competing memories",
+    "arbitration.conflict": "Competing memories disagreed",
+    "memory.influenced": "A memory shaped this decision",
+    "memory.impact": "Updated a memory's track record",
+    "execution.model_call": "Asked the language model",
+    "execution.tool_decision": "Decided to use a tool",
+    "execution.tool_result": "Got the tool result back",
+    "execution.model_revision": "Reconsidered after the tool result",
+    "execution.final_response": "Settled on a final answer",
+    "execution.cancelled": "Stopped work early",
+    "execution.limit_reached": "Hit the tool-loop limit and stopped",
+    "routing.selected": "Chose how to run this",
+    "routing.degraded": "Ran in a reduced mode",
+    "routing.not_configured": "Could not run: capability not configured",
+    "continuity.resumed": "Picked up where we left off",
+    "continuity.item_opened": "Started tracking something to return to",
+    "continuity.item_closed": "Closed off something we were tracking",
+    "policy.reverted": "Undid a behaviour change",
+    "trust.capability_changed": "Reliability estimate changed for a capability",
+    "trust.recovered": "A capability became reliable again",
+    "focus.changed": "You focused on something specific",
+    "focus.resolved": "Understood which object you meant",
+    "need.evaluated": "Checked whether I read your need correctly",
+    "control.command": "You told me directly how to handle something",
+    "control.refused": "Could not act on that instruction without more detail",
 }
 
 

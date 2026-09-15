@@ -144,3 +144,63 @@ Next.js App Router, React 19, TypeScript in strict mode with
   exactly once in the product.
 - No remote assets: system font stack, no Google Fonts, no image CDN. Frames are
   generated locally by `scripts/generate-frames.mjs`.
+
+---
+
+## V8.2 additions
+
+### New modules
+
+| Module | Responsibility |
+|---|---|
+| `providers/capabilities.py` | Capability detection + `CapabilityRouter` (task → execution mode) |
+| `agent/execution.py` | Trace stages, `ExecutionTrace`, `TraceRecorder`, `Cancellation`, `run_tool_safely` |
+| `cognition/context_builder.py` | The single canonical context bundle per turn |
+| `cognition/arbitration.py` | `ArbiterV2` + persisted arbitration records |
+| `cognition/influence.py` | The memory → influence → outcome → reputation ledger |
+| `cognition/continuity.py` | Open threads worth returning to |
+| `cognition/intent_v2.py` | Probabilistic intent evolution + need detection V2 |
+| `cognition/policy_engine.py` | Eight learned behavioural dimensions, with evidence |
+| `cognition/trust_v2.py` | Per capability × task-class reliability |
+| `cognition/focus.py` | Object permanence via stable IDs |
+| `cognition/user_control.py` | Natural-language cognitive commands |
+
+### Composition and the circular-dependency resolution
+
+`Runtime` is the composition root and builds in a deliberate order, because the
+agent needs cognition's recorder and cognition introspects the runtime:
+
+```
+1. Database, MemoryService, Provider
+2. MemoryAgent            (no cognition references yet)
+3. Cognition              (introspects the runtime, builds all subsystems)
+4. agent.recorder / context_builder / router / policy_engine  ← assigned post-hoc
+```
+
+This keeps `agent` and `cognition` free of a circular import while still giving
+the agent loop the real tracer and the real context builder.
+
+### Turn lifecycle in V8.2
+
+```
+POST /api/chat
+  │  correlation_id minted once, shared by both paths below
+  ├─▶ cognition.process_turn()
+  │     route → policy.apply_utterance → focus.resolve → control.handle
+  │     → needs.detect → intent_evolution.observe → retrieve → arbitrate
+  │     → influence (winner only) → continuity → context.build → trust.record
+  └─▶ agent.run()
+        load_context → [MODEL_CALL ⇄ TOOL_DECISION → TOOL_RESULT
+                        → MODEL_REVISION]* → FINAL_RESPONSE
+        bounded by depth cap, timeout, duplicate detection, cancellation
+```
+
+Both halves write to the same event bus under the same `correlation_id`, so
+`/api/cognition/turn/{id}` and `/api/execution/{id}` describe one turn.
+
+### Schema evolution
+
+`Database._migrate()` runs on construction and applies the `MIGRATIONS` tuple.
+Every migration is an additive `ALTER TABLE ADD COLUMN` guarded by
+`PRAGMA table_info`, so an existing V8.1 database upgrades in place with no data
+loss and no destructive change.

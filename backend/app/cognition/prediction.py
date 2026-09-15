@@ -82,6 +82,128 @@ class PredictionEngine:
                          "outcome": outcome})
         return self.get(prediction_id)
 
+    # ------------------------------------------------------- v8.2 observation
+    def observe(self, user_id: str, prediction_id: str, observation: str, *,
+                supports: bool | None = None, evidence: list[str] | None = None,
+                correlation_id: str | None = None) -> dict[str, Any] | None:
+        """
+        Evaluate a prediction against an OBSERVED reality (§13).
+
+        The critical guard: a prediction is NOT marked correct merely because
+        the user said something related. When `supports` is not supplied we
+        require the observation to carry an explicit resolution signal; if it
+        does not, the prediction stays open and we say why.
+
+        On a genuine evaluation we compute error, surprise and a learning
+        signal, and store them alongside the outcome.
+        """
+        row = self.db.query_one("SELECT * FROM predictions WHERE id=? AND user_id=?",
+                                (prediction_id, user_id))
+        if row is None:
+            raise KeyError(prediction_id)
+        if row["status"] != "open":
+            return None
+
+        verdict = supports
+        if verdict is None:
+            verdict = self._resolution_signal(observation)
+
+        if verdict is None:
+            # Not defensible as evidence either way — record the observation and
+            # leave the prediction open rather than inventing a result.
+            self.bus.emit(
+                user_id, "prediction.evaluated",
+                f"Observation did not resolve: {row['statement']}",
+                subject_kind="prediction", subject_id=prediction_id,
+                correlation_id=correlation_id,
+                payload={"resolved": False, "observation": observation[:200],
+                         "reason": "INSUFFICIENT EVIDENCE"})
+            return {**self.get(prediction_id),  # type: ignore[dict-item]
+                    "resolved": False,
+                    "reason": ("INSUFFICIENT EVIDENCE — that observation does not "
+                               "clearly confirm or refute this prediction, so it "
+                               "remains open.")}
+
+        confidence = float(row["confidence"])
+        # Error is the distance between what we asserted and what happened.
+        error = abs(confidence - (1.0 if verdict else 0.0))
+        # Surprise is error weighted by how sure we were: confidently wrong is
+        # the only genuinely surprising outcome.
+        surprise = round(error * confidence if not verdict else error * (1 - confidence), 3)
+
+        if not verdict and confidence >= 0.7:
+            learning = ("Was confidently wrong — lower confidence for this class "
+                        "of prediction until calibration improves.")
+        elif not verdict:
+            learning = "Was wrong but not confident; calibration looks reasonable."
+        elif confidence < 0.4:
+            learning = ("Was right while under-confident — this class of "
+                        "prediction may deserve more confidence.")
+        else:
+            learning = "Was right and appropriately confident; no change needed."
+
+        self.db.execute(
+            "UPDATE predictions SET status=?, outcome=?, evaluated_at=?,"
+            " error=?, surprise=?, learning_signal=? WHERE id=?",
+            ("correct" if verdict else "incorrect", observation[:400], _now(),
+             round(error, 3), surprise, learning, prediction_id))
+
+        self.bus.emit(user_id, "prediction.evaluated",
+                      f"Checked against reality: {row['statement']}",
+                      subject_kind="prediction", subject_id=prediction_id,
+                      correlation_id=correlation_id,
+                      payload={"correct": verdict, "observation": observation[:200],
+                               "error": round(error, 3), "surprise": surprise,
+                               "evidence": evidence or []})
+        self.bus.emit(user_id,
+                      "prediction.correct" if verdict else "prediction.incorrect",
+                      observation[:200], subject_kind="prediction",
+                      subject_id=prediction_id, correlation_id=correlation_id,
+                      payload={"confidence": confidence,
+                               "learning_signal": learning})
+
+        if not verdict and confidence >= 0.6:
+            self.bus.emit(
+                user_id, "surprise.detected",
+                f"Expected '{row['statement']}' with {int(confidence * 100)}% "
+                "confidence, but reality differed.",
+                subject_kind="prediction", subject_id=prediction_id,
+                correlation_id=correlation_id,
+                payload={"magnitude": surprise, "outcome": observation[:200],
+                         "learning_signal": learning})
+
+        result = self.get(prediction_id)
+        assert result is not None
+        return {**result, "resolved": True, "correct": verdict,
+                "error": round(error, 3), "surprise": surprise,
+                "learning_signal": learning}
+
+    @staticmethod
+    def _resolution_signal(observation: str) -> bool | None:
+        """
+        Does this observation actually resolve a prediction?
+
+        Returns True/False only for explicit confirmation or refutation, and
+        None when the text merely mentions the topic.
+        """
+        import re
+        text = observation.lower()
+        confirmed = re.search(
+            r"\b(it happened|that happened|came true|was right|were right|"
+            r"confirmed|did (?:finish|ship|complete|happen)|finished on time|"
+            r"shipped on time|completed as expected|turned out (?:to be )?"
+            r"(?:right|correct|true))\b", text)
+        refuted = re.search(
+            r"\b(didn'?t happen|did not happen|never happened|was wrong|"
+            r"were wrong|refuted|slipped|missed (?:the )?deadline|fell through|"
+            r"cancelled|canceled|failed to (?:finish|ship|complete)|"
+            r"turned out (?:to be )?(?:wrong|false|incorrect))\b", text)
+        if confirmed and not refuted:
+            return True
+        if refuted and not confirmed:
+            return False
+        return None
+
     def get(self, prediction_id: str) -> dict[str, Any] | None:
         row = self.db.query_one("SELECT * FROM predictions WHERE id=?", (prediction_id,))
         if row is None:

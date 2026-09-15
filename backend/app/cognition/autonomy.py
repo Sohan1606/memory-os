@@ -18,6 +18,15 @@ from typing import Any
 
 # Escalating autonomy levels. Each includes the powers of those before it.
 LEVELS = ("observe", "assist", "prepare", "act_low_risk", "act")
+
+# V8.2 §20 — the governor's five possible dispositions. `decision` remains
+# act/ask for backwards compatibility; `disposition` carries the finer answer.
+ACT = "ACT"
+ASK = "ASK"
+WAIT = "WAIT"
+DO_NOTHING = "DO_NOTHING"
+BLOCKED = "BLOCKED"
+DISPOSITIONS = (ACT, ASK, WAIT, DO_NOTHING, BLOCKED)
 LEVEL_INDEX = {name: i for i, name in enumerate(LEVELS)}
 
 DECISIONS = ("ignore", "monitor", "prepare", "mention", "ask", "act")
@@ -183,16 +192,70 @@ class AutonomyGovernor:
             allowed, decision = False, "ask"
             reasons.append(f"Confidence is only {confidence:.2f}.")
 
+        # ---- V8.2 §20: refine the binary act/ask into a five-state disposition.
+        disposition, why = self._disposition(
+            allowed=allowed, risk=risk, risk_class=risk_class, level=level,
+            level_idx=level_idx, reversible=reversible, confidence=confidence,
+            reliability=reliability)
+        reasons.append(why)
+
         self.bus.emit(user_id,
                       "action.authorized" if allowed else "action.denied",
-                      f"{action}: {decision.upper()}",
+                      f"{action}: {disposition}",
                       subject_kind="action", subject_id=action,
                       correlation_id=correlation_id,
                       payload={"allowed": allowed, "decision": decision,
+                               "disposition": disposition,
                                "risk": risk, "reasons": reasons})
-        return {"action": action, "allowed": allowed, "decision": decision,
+        return {"action": action, "allowed": allowed,
+                # `decision` stays act/ask for V8/V8.1 compatibility.
+                "decision": decision,
+                "disposition": disposition, "disposition_reason": why,
                 "risk": risk, "level": level, "reasons": reasons,
                 "reliability": reliability}
+
+    def _disposition(self, *, allowed: bool, risk: float, risk_class: str,
+                     level: str, level_idx: int, reversible: bool,
+                     confidence: float,
+                     reliability: dict[str, Any]) -> tuple[str, str]:
+        """
+        Map the authorisation outcome onto ACT / ASK / WAIT / DO_NOTHING / BLOCKED.
+
+        The distinction matters: ASK means "I need your approval", WAIT means
+        "I need more evidence before I can even ask", DO_NOTHING means "acting
+        here would be noise", and BLOCKED means "a hard rule forbids this".
+        """
+        if not reversible or risk >= RISK["external_write"]:
+            return (BLOCKED,
+                    "BLOCKED: this is irreversible or externally visible, so it "
+                    "can never run without your explicit instruction.")
+
+        if reliability["label"] == "UNRELIABLE":
+            return (BLOCKED,
+                    "BLOCKED: my recent track record on this kind of action is "
+                    "demonstrably poor, so I have withdrawn my own authority.")
+
+        if allowed:
+            return (ACT, "ACT: low risk, reversible, and within your autonomy "
+                         "level.")
+
+        if level == "observe":
+            return (DO_NOTHING,
+                    "DO_NOTHING: you have me in observe-only mode, so the "
+                    "correct behaviour is to stay out of the way.")
+
+        if confidence < 0.4:
+            return (WAIT,
+                    f"WAIT: at {confidence:.2f} confidence I do not yet have "
+                    "enough evidence to act or even to ask a useful question.")
+
+        if reliability["label"] == "INSUFFICIENT EVIDENCE":
+            return (WAIT,
+                    "WAIT: I have no track record for this capability yet, so I "
+                    "am holding until there is evidence either way.")
+
+        return (ASK, "ASK: I could do this, but the risk is above what you have "
+                     "authorised me to take unilaterally.")
 
 
 class AttentionEngine:

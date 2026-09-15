@@ -128,3 +128,102 @@ Stated plainly so the docs do not overclaim:
 - **Extraction is deterministic**, not model-driven, unless a tool-calling model
   is configured. Intent, need, world entities and predictions come from explicit
   rules over the user's own words — not from an LLM.
+
+---
+
+## V8.2 — the Cognitive Core
+
+V8.1 could state what it believed. V8.2 records **why**, **what that belief
+changed**, and **whether it was right** — and refuses to answer where it has not
+observed.
+
+### The honesty rules, stated as invariants
+
+These are the rules the V8.2 test suite exists to defend. Each is enforced in
+code, not just documented.
+
+1. **Retrieval is not influence.** Retrieving a memory records a usage count.
+   It never moves reputation. Only a memory that won arbitration and entered the
+   decision path is recorded as an influence.
+2. **No evidence, no reputation change.** An outcome claiming `SUPPORTED` with
+   an empty evidence list is downgraded to `INSUFFICIENT EVIDENCE`.
+3. **Confidence ≠ reputation.** They are separate fields, computed from separate
+   inputs, and a high-confidence memory with no track record reads
+   `INSUFFICIENT EVIDENCE`.
+4. **A question never asserts intent.** *"Should I migrate to Postgres?"*
+   creates nothing.
+5. **An unconfirmed goal never displaces a confirmed one.** A second objective
+   without an explicit change signal is `emerging`, surfaced separately.
+6. **A prediction is scored only when reality resolved it.** Mentioning the
+   topic is not evidence.
+7. **A bad outcome is not proof of a bad decision.** Regret with no recorded
+   expectation and no cited evidence is `INSUFFICIENT EVIDENCE`, not a number.
+8. **UNKNOWN never satisfies a requirement.** An unrecognised model is not
+   assumed to support tool calling.
+9. **Never guess a destructive target.** "Forget that" with nothing focused, or
+   with two equally good matches, asks instead of deleting.
+10. **Truncation and degradation are declared**, never silent.
+11. **No hidden chain-of-thought is exposed.** Explanations cite sources,
+    confidences, reputations and recorded transitions.
+
+### The causal chain
+
+```
+memory ──retrieved──▶ (usage count only, no judgement)
+   │
+   └──won arbitration──▶ influence ──observed outcome + evidence──▶ reputation
+                             │                                          │
+                             └── no outcome yet ──▶ INSUFFICIENT EVIDENCE
+```
+
+Each arrow is a persisted row. `GET /api/memories/{id}/impact` walks the whole
+chain and reports only as far as the evidence allows.
+
+### Arbitration factors
+
+| Factor | Weight |
+|---|---|
+| confidence | 0.20 |
+| authority (correction > explicit > conversation > inference) | 0.18 |
+| recency | 0.15 |
+| scope match | 0.12 |
+| reputation | 0.12 |
+| specificity | 0.08 |
+| freshness | 0.08 |
+| explicit correction | 0.07 |
+| contradiction penalty | −0.15 each, capped at −0.4 |
+
+`STALE_AFTER_DAYS = 120`. A `superseded` memory is blocked outright. Lifecycle
+`retired` / `quarantined` memories are excluded from retrieval and listed in
+`excluded` — visible, not silently dropped.
+
+### Execution tracing
+
+Eleven stages, persisted per turn and addressable by `correlation_id`.
+Four bounds: depth cap (4), timeout (180 s), duplicate-call detection, and
+cooperative cancellation. A tool failure returns `TOOL_ERROR: …` to the model so
+it can recover; it does not abort the turn.
+
+### The five autonomy dispositions
+
+| Disposition | When |
+|---|---|
+| `ACT` | Low risk, reversible, within your autonomy level |
+| `ASK` | Capable, but risk exceeds unilateral authority |
+| `WAIT` | Not enough evidence to act *or* ask a useful question |
+| `DO_NOTHING` | Observe-only: staying out of the way is the right answer |
+| `BLOCKED` | Irreversible / external, or a demonstrably poor track record |
+
+`decision` remains `act`/`ask` for V8/V8.1 compatibility.
+
+### What is NOT implemented in V8.2
+
+- **No external connectors.** Calendar, email and files are declared
+  `NOT CONNECTED` in every context bundle and contribute zero items.
+  `UNCONNECTED` is a valid end state, not a placeholder for fake data.
+- **No cross-user learning.** Everything is per-user-namespace.
+- **No independent investigation.** Regret and outcomes are scored from evidence
+  the caller supplies; the system does not go looking for it.
+- **No vision** without a vision model — reported `NOT_CONFIGURED`, never
+  downgraded to a guess.
+- **Semantic continuity decay** is time-based (45 days), not meaning-based.

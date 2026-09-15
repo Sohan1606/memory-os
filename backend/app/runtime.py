@@ -37,10 +37,20 @@ class Runtime:
         self.langmem = LangMemExtractor(
             self.provider.chat_model() if self.provider.status().supports_tool_calling else None)
         self.agent = MemoryAgent(self.memory, self.provider, self.checkpointer,
-                                 langmem=self.langmem, llm_lock=self.llm_lock)
+                                 langmem=self.langmem, llm_lock=self.llm_lock,
+                                 max_tool_depth=getattr(cfg, "max_tool_depth", 4),
+                                 turn_timeout_s=getattr(cfg, "turn_timeout_s", None))
         # v8 cognitive layer. Constructed last: it introspects the runtime it
         # belongs to (SelfModel reports on provider/vectors/voice/langmem).
         self.cognition = Cognition(self.db, self.memory, self)
+        # v8.2: give the agent its cognitive collaborators now that they exist.
+        # Done after construction because Cognition introspects the runtime,
+        # which already holds the agent - this breaks the circular dependency
+        # without duplicating any state.
+        self.agent.recorder = self.cognition.traces
+        self.agent.context_builder = self.cognition.context
+        self.agent.router = self.cognition.router
+        self.agent.policy_engine = self.cognition.policy
         self.seed_if_empty()
 
     @staticmethod
@@ -91,6 +101,10 @@ class Runtime:
                 "extraction": self.cognition.extractor.status(),
                 "perception": self.cognition.perception.capabilities(),
             },
+            # v8.2: capability truth and how each task would actually execute.
+            "capabilities": self.cognition.router.report().as_dict(),
+            "routing": self.cognition.router.routing_table(),
+            "version": "8.2",
         }
 
     def close(self) -> None:

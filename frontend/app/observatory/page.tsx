@@ -9,6 +9,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import ActivityFeed from "@/components/observatory/ActivityFeed";
 import AutonomyPanel from "@/components/observatory/AutonomyPanel";
+import CapabilityPanel from "@/components/observatory/CapabilityPanel";
+import CognitivePolicyPanel from "@/components/observatory/CognitivePolicyPanel";
+import ContinuityPanel from "@/components/observatory/ContinuityPanel";
+import InfluencePanel from "@/components/observatory/InfluencePanel";
 import LearningPanel from "@/components/observatory/LearningPanel";
 import MemoryHealthPanel from "@/components/observatory/MemoryHealthPanel";
 import ProviderPanel from "@/components/observatory/ProviderPanel";
@@ -112,7 +116,11 @@ export default function ObservatoryPage() {
           }}
         />
         <ProviderPanel />
+        <CapabilityPanel />
         <MemoryHealthPanel />
+        <InfluencePanel refreshKey={refreshKey} />
+        <CognitivePolicyPanel refreshKey={refreshKey} />
+        <ContinuityPanel refreshKey={refreshKey} />
         <AutonomyPanel refreshKey={refreshKey} />
         <SelfPanel />
         <LearningPanel refreshKey={refreshKey} />

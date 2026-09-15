@@ -9,6 +9,10 @@ import type {
   HealthFinding, MemoryHealthReport, PerceptionResult, ProviderStatusResponse,
   SandboxResult, SearchResponse, SelfReport, Stats, TrustScore, WorldEntity,
   WorldSummary,
+  ArbitrationRecord, CapabilitiesResponse, CapabilityTrustEntry,
+  CognitivePolicy, ContinuityItem, ControlResult, ExecutionStep, FocusEntry,
+  IntentTransition, MemoryImpact, MemoryInfluence, NeedHypothesis,
+  RouteDecision,
 } from "./types";
 
 export class ApiError extends Error {
@@ -194,4 +198,132 @@ export const api = {
     request<{ memory_id: string; lifecycle: string; reputation: string;
               evidence: number; retrievals: number; influences: number }>(
       `/api/memories/${encodeURIComponent(id)}/reputation`),
+
+  /* ---------------------------------------------------------------- V8.2 */
+
+  /** What the active model can genuinely do, and why we believe that. */
+  capabilities: () =>
+    request<{ capabilities: CapabilitiesResponse }>("/api/capabilities"),
+
+  /** The full routing table: how each task class will actually execute. */
+  routingTable: () =>
+    request<{ routes: RouteDecision[] }>("/api/capabilities/route"),
+
+  /** The recorded execution trace for one turn. */
+  execution: (correlationId: string) =>
+    request<{ correlation_id: string; steps: ExecutionStep[] }>(
+      `/api/execution/${encodeURIComponent(correlationId)}`),
+
+  recentExecutions: () =>
+    request<{ traces: { correlation_id: string; steps: number;
+                        started_at: string }[] }>("/api/execution"),
+
+  arbitrations: () =>
+    request<{ records: ArbitrationRecord[] }>("/api/arbitration"),
+
+  arbitration: (id: string) =>
+    request<ArbitrationRecord & { candidates: Record<string, unknown>[] }>(
+      `/api/arbitration/${encodeURIComponent(id)}`),
+
+  /** Recorded memory influences. `pending` = outcome not yet observed. */
+  influences: (pending = false) =>
+    request<{ influences: MemoryInfluence[]; count: number }>(
+      `/api/influence${pending ? "?pending=true" : ""}`),
+
+  recordInfluenceOutcome: (
+    id: string,
+    body: { verdict: string; detail: string; evidence: string[] },
+  ) =>
+    request<MemoryInfluence>(
+      `/api/influence/${encodeURIComponent(id)}/outcome`,
+      { method: "POST", body: JSON.stringify(body) }),
+
+  /** The full causal story of one memory, as far as evidence allows. */
+  memoryImpact: (id: string) =>
+    request<MemoryImpact>(`/api/memories/${encodeURIComponent(id)}/impact`),
+
+  cognitivePolicy: () =>
+    request<{ effective: Record<string, string>; policies: CognitivePolicy[] }>(
+      "/api/cognitive-policy"),
+
+  explainPolicy: (key: string) =>
+    request<CognitivePolicy>(
+      `/api/cognitive-policy/${encodeURIComponent(key)}`),
+
+  revertPolicy: (key: string) =>
+    request<{ key: string; reverted: boolean }>(
+      `/api/cognitive-policy/${encodeURIComponent(key)}`, { method: "DELETE" }),
+
+  /** Per-capability trust, honest about insufficient evidence. */
+  capabilityTrust: () =>
+    request<{ capabilities: CapabilityTrustEntry[] }>("/api/trust"),
+
+  intentTransitions: () =>
+    request<{ transitions: IntentTransition[] }>("/api/intents/transitions"),
+
+  explainIntent: (id: string) =>
+    request<{ intent: Record<string, unknown> | null;
+              transitions: IntentTransition[]; explanation: string }>(
+      `/api/intents/${encodeURIComponent(id)}/why`),
+
+  needs: () =>
+    request<{ recent: string[]; hypotheses: NeedHypothesis[];
+              accuracy: { evaluated: number; accuracy: number | null;
+                          detail: string } }>("/api/needs"),
+
+  evaluateNeed: (id: string, correct: boolean) =>
+    request<{ id: string; need: string; correct: boolean }>(
+      `/api/needs/${encodeURIComponent(id)}/evaluate`,
+      { method: "POST", body: JSON.stringify({ correct }) }),
+
+  continuity: () => request<{ items: ContinuityItem[] }>("/api/continuity"),
+
+  closeContinuityItem: (id: string, note = "") =>
+    request<ContinuityItem>(
+      `/api/continuity/${encodeURIComponent(id)}/close`,
+      { method: "POST", body: JSON.stringify({ note }) }),
+
+  /** Object permanence: tell the backend what the user has open. */
+  setFocus: (subjectKind: string, subjectId: string,
+             opts: { sessionId?: string; label?: string } = {}) =>
+    request<FocusEntry>("/api/focus", {
+      method: "POST",
+      body: JSON.stringify({
+        subject_kind: subjectKind, subject_id: subjectId,
+        session_id: opts.sessionId ?? "default", label: opts.label ?? null }),
+    }),
+
+  focus: (sessionId = "default") =>
+    request<{ focus: FocusEntry[] }>(
+      `/api/focus?session_id=${encodeURIComponent(sessionId)}`),
+
+  clearFocus: (sessionId = "default") =>
+    request<{ cleared: number }>(
+      `/api/focus?session_id=${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" }),
+
+  whyNow: (subjectKind: string, subjectId: string) =>
+    request<Record<string, unknown>>(
+      `/api/cognition/why-now?subject_kind=${encodeURIComponent(subjectKind)}` +
+      `&subject_id=${encodeURIComponent(subjectId)}`),
+
+  whyMemoryUsed: (id: string) =>
+    request<Record<string, unknown>>(
+      `/api/memories/${encodeURIComponent(id)}/why-used`),
+
+  observePrediction: (id: string, observation: string,
+                      opts: { supports?: boolean; evidence?: string[] } = {}) =>
+    request<Record<string, unknown>>(
+      `/api/predictions/${encodeURIComponent(id)}/observe`, {
+        method: "POST",
+        body: JSON.stringify({ observation, supports: opts.supports ?? null,
+                               evidence: opts.evidence ?? [] }),
+      }),
+
+  /** Natural-language control over the system's own cognition. */
+  control: (message: string, sessionId = "default") =>
+    request<ControlResult>("/api/control", {
+      method: "POST",
+      body: JSON.stringify({ message, session_id: sessionId }),
+    }),
 };

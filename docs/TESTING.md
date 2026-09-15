@@ -176,3 +176,62 @@ errors). Run them against a **built** frontend.
 
 > `BACKEND_URL` is compiled into the Next.js build. If you move the API off port
 > 8000, rebuild the frontend - otherwise every `/api/*` call returns 500.
+
+---
+
+## V8.2 test suite
+
+Ten new files, **241 tests** (233 passing, 2 skipped for the absent real model,
+plus 6 that overlap with other modules when run as a set).
+
+| File | Tests | Covers |
+|---|---|---|
+| `test_v82_capabilities.py` | 19 | §3 capability detection, provider veto, `UNKNOWN`, routing table, vision `NOT_CONFIGURED` |
+| `test_v82_agent_loop.py` | 17 | §4 trace stages, depth cap, timeout, cancellation, duplicate blocking, tool-failure recovery |
+| `test_v82_arbitration.py` | 18 | §6/§7 nine factors, blocked/superseded, contradiction penalty, excluded quarantined memories |
+| `test_v82_influence.py` | 15 | §8 the causal chain, and every way reputation must *not* move |
+| `test_v82_intent_needs.py` | 19 | §10/§11 questions never assert intent, emerging vs confirmed, need accuracy |
+| `test_v82_context_focus.py` | 20 | §5/§16/§21 bounded ranked context, declared truncation, NOT CONNECTED, focus ambiguity |
+| `test_v82_prediction_regret.py` | 25 | §13/§14 resolution guard, error/surprise/learning, evidence-based regret |
+| `test_v82_user_control.py` | 21 | §19 command parsing, false-positive resistance, refusal to guess |
+| `test_v82_api.py` | 39 | The HTTP surface, plus V8.1 backwards-compatibility assertions |
+| `test_v82_real_intelligence.py` | 17 | Fallback honesty, scripted-model path, real-Ollama tests (skipped with a reason) |
+
+### Real intelligence vs deterministic fallback
+
+`test_v82_real_intelligence.py` is split deliberately:
+
+* **Part A — fallback.** Runs everywhere. Asserts the system *declares* itself
+  deterministic, claims no model capabilities, and still performs genuine
+  retrieval, arbitration and evidence-keeping.
+* **Part B — model path.** A `ScriptedModel` stands in for a tool-calling LLM,
+  so the loop's real behaviour is exercised deterministically: the **model's**
+  tool choice is honoured (not a keyword rule), the tool hits real memory data,
+  revisions are traced, runaway loops are bounded, and retrieved memory is
+  proven to actually reach the prompt.
+* **Part C — real Ollama.** Probes for a live server; skips with an explicit
+  reason when absent. It never silently passes.
+
+### Bugs these tests caught
+
+Written to be capable of failing — and five did:
+
+1. **Empty reply on depth limit.** Hitting `MAX_TOOL_DEPTH` mid tool-call
+   returned `""`. Now it explains why it stopped.
+2. **Emerging intent overwrote the confirmed one.** Stored as `emerging`,
+   reported as `current_intent`. Now surfaced as `emerging_intent`.
+3. **"back to X" was discarded.** An explicit resume signal without a
+   purpose-phrase fell through. Added `_try_resume`, which still refuses when
+   the target is ambiguous.
+4. **REMEMBER false positive.** *"what should I remember for the meeting"*
+   triggered a memory write. The pattern is now imperative-anchored.
+5. **Test isolation.** A shared LangGraph thread leaked messages between tests.
+
+### Full run
+
+```
+$ cd backend && .venv/bin/python -m pytest
+412 passed, 10 skipped in 116.61s
+```
+
+The V8.1 baseline (**179 passed, 8 skipped**) is fully preserved.
