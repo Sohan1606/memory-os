@@ -82,6 +82,39 @@ FOCUS = ("focus.changed", "focus.resolved")
 NEED_V82 = ("need.evaluated",)
 CONTROL = ("control.command", "control.refused")
 
+# --------------------------------------------------------------- v8.3 events
+# Continuous-cognition additions (§3). Every category below is emitted from
+# work that genuinely executed. Background cycles that found nothing still
+# emit background.cycle_completed with an honest empty finding set.
+PERCEPTION_V83 = ("perception.normalised", "perception.unsupported",
+                  "perception.degraded", "document.ingested", "document.parsed",
+                  "document.indexed", "document.stale", "document.replaced",
+                  "document.removed")
+WORLD_V83 = ("world.reconciled", "world.superseded", "world.merged",
+             "world.flagged", "world.downgraded", "world.stale",
+             "world.confirmed", "world.change_recorded")
+MISSION_V83 = ("mission.activated", "mission.blocked", "mission.unblocked",
+               "mission.waiting", "mission.paused", "mission.resumed",
+               "mission.failed", "mission.step_added", "mission.step_completed",
+               "mission.replanned", "mission.reviewed")
+ATTENTION = ("attention.changed", "attention.evaluated", "attention.suppressed")
+INTERVENTION_V83 = ("intervention.deferred", "intervention.escalated")
+OBSERVATION = ("observation.recorded", "observation.linked",
+               "observation.promoted", "observation.discarded")
+OUTCOME_V83 = ("outcome.observed", "outcome.unresolved")
+SIMULATION = ("simulation.started", "simulation.completed",
+              "simulation.discarded", "simulation.committed")
+BACKGROUND = ("background.cycle_started", "background.cycle_completed",
+              "background.cycle_skipped", "background.cycle_cancelled",
+              "background.cycle_failed", "background.disabled",
+              "background.enabled", "background.paused", "background.resumed")
+MAINTENANCE_V83 = ("memory.maintenance_started", "memory.maintenance_finding",
+                   "memory.maintenance_completed", "memory.revalidated",
+                   "memory.downgraded")
+TIMEMACHINE = ("history.reconstructed", "history.unavailable")
+CONNECTOR = ("connector.declared", "connector.unavailable")
+RESEARCH = ("research.requested", "research.unavailable")
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -89,6 +122,9 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + EXTRACTION + PERCEPTION + MAINTENANCE + MISSION + EXPERIMENT
     + CONTEXT_BUILD + ARBITRATION + INFLUENCE + EXECUTION + ROUTING
     + CONTINUITY + POLICY_V82 + TRUST_V82 + FOCUS + NEED_V82 + CONTROL
+    + PERCEPTION_V83 + WORLD_V83 + MISSION_V83 + ATTENTION + INTERVENTION_V83
+    + OBSERVATION + OUTCOME_V83 + SIMULATION + BACKGROUND + MAINTENANCE_V83
+    + TIMEMACHINE + CONNECTOR + RESEARCH
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -209,6 +245,70 @@ LABELS: dict[str, str] = {
     "need.evaluated": "Checked whether I read your need correctly",
     "control.command": "You told me directly how to handle something",
     "control.refused": "Could not act on that instruction without more detail",
+    # ----------------------------------------------------------- v8.3 labels
+    "perception.normalised": "Normalised an input",
+    "perception.unsupported": "Could not interpret an input",
+    "perception.degraded": "Interpreted an input only partially",
+    "document.ingested": "Received a document",
+    "document.parsed": "Read a document",
+    "document.indexed": "Indexed a document",
+    "document.stale": "A document went out of date",
+    "document.replaced": "A newer version replaced a document",
+    "document.removed": "Removed a document",
+    "world.reconciled": "Reconciled conflicting world information",
+    "world.superseded": "Newer information replaced older",
+    "world.merged": "Merged duplicate world entries",
+    "world.flagged": "Flagged a world conflict for you",
+    "world.downgraded": "Lowered confidence in world information",
+    "world.stale": "World information may be out of date",
+    "world.confirmed": "Confirmed world information is current",
+    "world.change_recorded": "Recorded a world change",
+    "mission.activated": "Started working a mission",
+    "mission.blocked": "A mission became blocked",
+    "mission.unblocked": "A mission is unblocked",
+    "mission.waiting": "A mission is waiting on something",
+    "mission.paused": "Paused a mission",
+    "mission.resumed": "Resumed a mission",
+    "mission.failed": "A mission failed",
+    "mission.step_added": "Added a mission step",
+    "mission.step_completed": "Completed a mission step",
+    "mission.replanned": "Revised a mission plan",
+    "mission.reviewed": "Reviewed a mission",
+    "attention.changed": "What I'm paying attention to changed",
+    "attention.evaluated": "Weighed whether to raise something",
+    "attention.suppressed": "Chose to stay quiet",
+    "intervention.deferred": "Held something for a better moment",
+    "intervention.escalated": "Raised the urgency of something",
+    "observation.recorded": "Recorded an observation",
+    "observation.linked": "Linked an observation to what it concerns",
+    "observation.promoted": "An observation became a memory",
+    "observation.discarded": "Discarded an observation",
+    "outcome.observed": "Observed how something turned out",
+    "outcome.unresolved": "Still no evidence either way",
+    "simulation.started": "Started a what-if",
+    "simulation.completed": "Finished a what-if",
+    "simulation.discarded": "Discarded a what-if",
+    "simulation.committed": "Applied a what-if for real",
+    "background.cycle_started": "Background upkeep started",
+    "background.cycle_completed": "Background upkeep finished",
+    "background.cycle_skipped": "Skipped background upkeep",
+    "background.cycle_cancelled": "Cancelled background upkeep",
+    "background.cycle_failed": "Background upkeep failed",
+    "background.disabled": "Background cognition disabled",
+    "background.enabled": "Background cognition enabled",
+    "background.paused": "Background cognition paused",
+    "background.resumed": "Background cognition resumed",
+    "memory.maintenance_started": "Memory review started",
+    "memory.maintenance_finding": "Found something worth reviewing",
+    "memory.maintenance_completed": "Memory review finished",
+    "memory.revalidated": "Re-checked a memory with you",
+    "memory.downgraded": "Lowered confidence in a memory",
+    "history.reconstructed": "Reconstructed an earlier state",
+    "history.unavailable": "No history available for that point",
+    "connector.declared": "Declared a connector interface",
+    "connector.unavailable": "A connector is not connected",
+    "research.requested": "Research was requested",
+    "research.unavailable": "No research provider is configured",
 }
 
 

@@ -1,9 +1,11 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.2 — Cognitive Core.**
+**MEMORY//OS V8.3 — Continuous Cognition.**
 
-An AI assistant that actually remembers — and can tell you *why* it believed
-something, *what that belief changed*, and *whether it turned out to be right*.
+A continuously maintained personal cognitive environment, operated through
+conversation. It remembers, and it can tell you *why* it believed something,
+*what that belief changed*, *whether it turned out to be right* — and what it
+has been quietly keeping track of since you last spoke.
 A local-first agent with persistent long-term memory — LangGraph, LangChain
 tools, ChromaDB and local embeddings — presented through a cinematic dark
 product interface.
@@ -31,6 +33,18 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V8.3
+
+Long-running **missions** that span conversations · a **world model with
+history**, per-fact staleness and evidence-based reconciliation · **bounded,
+cancellable background cognition** that records empty cycles honestly · a
+**canonical observation log** kept separate from memory · **attention V2** with
+learned silence · a **time machine** over real recorded history · a strictly
+isolated **counterfactual sandbox**.
+
+Full detail: [`docs/V8.3.md`](docs/V8.3.md). The pre-work audit that shaped it:
+[`docs/V8.3-AUDIT.md`](docs/V8.3-AUDIT.md).
 
 ## What is real
 

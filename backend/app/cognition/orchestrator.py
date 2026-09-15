@@ -20,7 +20,17 @@ from ..providers.capabilities import CapabilityRouter
 from .arbitration import ArbiterV2
 from .autonomy import AttentionEngine, AutonomyGovernor, TrustModel
 from .causality import CausalGraph, DecisionLog
+from .attention import AttentionEngineV2
+from .background import BackgroundCognition
+from .connectors import ConnectorRegistry, ResearchMode
 from .context_builder import ContextBuilder
+from .documents import DocumentStore
+from .maintenance import MaintenanceV2
+from .missions import MissionRegistry
+from .observation import ObservationLog
+from .simulation import SimulationEngine
+from .timemachine import TimeMachine
+from .world_v2 import WorldStateV2
 from .continuity import ContinuityEngine
 from .events import EventBus
 from .focus import FocusTracker
@@ -98,6 +108,28 @@ class Cognition:
                                            self.predictions)
         self.context = ContextBuilder(self)
         self.traces = TraceRecorder(db, self.bus)
+
+        # ------------------------------------------------------ v8.3 additions
+        # Continuous cognition. Each of these EXTENDS a V8.2 system rather than
+        # replacing it: observations feed the existing evidence rules, world_v2
+        # wraps WorldModel, attention_v2 wraps AttentionEngine, and simulation
+        # reuses the V8.2 Sandbox projection.
+        self.observations = ObservationLog(db, self.bus)
+        self.missions = MissionRegistry(db, self.bus, self.observations)
+        self.world_v2 = WorldStateV2(db, self.bus, self.world, self.observations)
+        self.documents = DocumentStore(db, self.bus, self.observations)
+        self.attention_v2 = AttentionEngineV2(db, self.bus, self.attention,
+                                              self.missions, self.focus)
+        self.maintenance = MaintenanceV2(db, self.bus, self.health, memory)
+        self.simulation = SimulationEngine(db, self.bus, self.world,
+                                           self.sandbox, self.missions,
+                                           world_v2=self.world_v2)
+        self.timemachine = TimeMachine(db, self.bus)
+        self.connectors = ConnectorRegistry(db, self.bus)
+        self.research = ResearchMode(db, self.bus, provider=None)
+        self.background = BackgroundCognition(
+            db, self.bus, world_v2=self.world_v2, missions=self.missions,
+            maintenance=self.maintenance, predictions=self.predictions)
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,

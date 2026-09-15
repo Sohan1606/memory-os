@@ -396,9 +396,171 @@ CREATE TABLE IF NOT EXISTS focus_state (
 );
 """
 
+
+# V8.3 continuous-cognition tables. Kept in a separate constant so the V8/V8.1
+# schema above is provably untouched; both are executed at startup.
+SCHEMA_V83 = """
+-- ============================================================ V8.3 CONTINUOUS
+-- Long-running objectives that span many conversations (§10).
+CREATE TABLE IF NOT EXISTS missions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    state TEXT NOT NULL DEFAULT 'draft',
+    priority REAL NOT NULL DEFAULT 0.5,
+    scope TEXT,
+    constraints TEXT,
+    success_criteria TEXT,
+    progress REAL NOT NULL DEFAULT 0.0,
+    next_step TEXT,
+    blocked_reason TEXT,
+    waiting_on TEXT,
+    source TEXT,
+    confidence REAL NOT NULL DEFAULT 0.6,
+    evidence TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_activity_at TEXT,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_missions_user ON missions(user_id, state);
+
+-- Bounded next actions for a mission. Never an auto-generated mega-plan.
+CREATE TABLE IF NOT EXISTS mission_steps (
+    id TEXT PRIMARY KEY,
+    mission_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',
+    kind TEXT NOT NULL DEFAULT 'task',
+    depends_on TEXT,
+    evidence TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mission_steps ON mission_steps(mission_id, state);
+
+-- Every mission state change, with the reason and the evidence for it.
+CREATE TABLE IF NOT EXISTS mission_events (
+    id TEXT PRIMARY KEY,
+    mission_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    change TEXT NOT NULL,
+    previous_state TEXT,
+    new_state TEXT,
+    reason TEXT,
+    evidence TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mission_events ON mission_events(mission_id, id DESC);
+
+-- Links between missions and the rest of cognition (memories, world, goals...).
+CREATE TABLE IF NOT EXISTS mission_links (
+    mission_id TEXT NOT NULL,
+    subject_kind TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    relation TEXT NOT NULL DEFAULT 'relates_to',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (mission_id, subject_kind, subject_id, relation)
+);
+
+-- Canonical observations (§17). Evidence, NOT automatically memory.
+CREATE TABLE IF NOT EXISTS observations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    content TEXT NOT NULL,
+    epistemic_status TEXT NOT NULL DEFAULT 'OBSERVED',
+    confidence REAL NOT NULL DEFAULT 0.6,
+    scope TEXT,
+    provenance TEXT,
+    subject_kind TEXT,
+    subject_id TEXT,
+    correlation_id TEXT,
+    observed_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_observations_user ON observations(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_observations_subject ON observations(subject_kind, subject_id);
+
+-- Background cognition cycles (§13/§14). A cycle that found nothing is
+-- recorded as having found nothing - never dressed up as activity.
+CREATE TABLE IF NOT EXISTS background_cycles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'running',
+    tasks_run TEXT,
+    findings TEXT,
+    changes_made INTEGER NOT NULL DEFAULT 0,
+    skipped_reason TEXT,
+    error TEXT,
+    duration_ms INTEGER,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bg_cycles ON background_cycles(user_id, id DESC);
+
+-- Ingested documents and their lifecycle (§6).
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    media_type TEXT,
+    checksum TEXT,
+    bytes_len INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL DEFAULT 'INGESTED',
+    parser TEXT,
+    pages INTEGER,
+    extracted_chars INTEGER NOT NULL DEFAULT 0,
+    understanding TEXT,
+    detail TEXT,
+    replaces_id TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id, state);
+
+-- Connector registry (§26). Rows describe INTERFACES, never fake data.
+CREATE TABLE IF NOT EXISTS connectors (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'NOT CONNECTED',
+    capabilities TEXT,
+    scopes TEXT,
+    detail TEXT,
+    last_checked_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connectors_user ON connectors(user_id, name);
+
+-- Research sessions (§27). State model only until a provider exists.
+CREATE TABLE IF NOT EXISTS research_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'DRAFT',
+    provider_state TEXT NOT NULL DEFAULT 'RESEARCH PROVIDER NOT CONFIGURED',
+    claims TEXT,
+    contradictions TEXT,
+    open_questions TEXT,
+    conclusion TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_user ON research_sessions(user_id, id DESC);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
+
 MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("policies", "confidence", "REAL NOT NULL DEFAULT 0.0"),
     ("policies", "evidence", "TEXT"),
@@ -412,6 +574,22 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("decisions", "delayed_consequences", "TEXT"),
     ("decisions", "opportunity_cost", "TEXT"),
     ("decisions", "regret_evidence", "TEXT"),
+    # ---------------------------------------------------------------- v8.3
+    # World-state freshness (§9). Staleness is per-fact, never a universal TTL.
+    ("world_entities", "last_confirmed_at", "TEXT"),
+    ("world_entities", "freshness_class", "TEXT"),
+    ("world_entities", "freshness_reason", "TEXT"),
+    ("world_entities", "stale", "INTEGER NOT NULL DEFAULT 0"),
+    ("world_entities", "epistemic_status", "TEXT"),
+    # Predictions gain a real evaluation window (§19).
+    ("predictions", "evaluation_window_days", "REAL"),
+    ("predictions", "partial", "INTEGER NOT NULL DEFAULT 0"),
+    # Interventions gain the richer attention vocabulary (§15).
+    ("interventions", "mission_id", "TEXT"),
+    ("interventions", "suppressed_because", "TEXT"),
+    # Sandbox runs are explicitly tagged SIMULATED (§20/§39).
+    ("sandbox_runs", "epistemic_status", "TEXT"),
+    ("sandbox_runs", "assumptions", "TEXT"),
 )
 
 
@@ -424,6 +602,7 @@ class Database:
         self._key = f"conn_{id(self)}"
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            conn.executescript(SCHEMA_V83)
         self._migrate()
 
     def _migrate(self) -> None:

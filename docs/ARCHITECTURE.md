@@ -204,3 +204,48 @@ Both halves write to the same event bus under the same `correlation_id`, so
 Every migration is an additive `ALTER TABLE ADD COLUMN` guarded by
 `PRAGMA table_info`, so an existing V8.1 database upgrades in place with no data
 loss and no destructive change.
+
+---
+
+## V8.3 — Continuous Cognition
+
+```
+                    ┌──────────────── conversation (primary surface)
+                    │
+   perception ──► understanding ──► intent / need ──► context ──► memory
+                                                          │
+                          ┌───────────────────────────────┤
+                          ▼                               ▼
+                   world state V2                    missions
+                   · change history                  · bounded steps
+                   · staleness                       · transition log
+                   · reconciliation                  · resume brief
+                          │                               │
+                          └───────────────┬───────────────┘
+                                          ▼
+                                    observations
+                                 (canonical evidence)
+                                          │
+              ┌───────────────┬───────────┼───────────┬──────────────┐
+              ▼               ▼           ▼           ▼              ▼
+         prediction      attention V2  simulation  time machine  background
+         · windows       · ladder      · isolated  · real        · bounded
+         · UNRESOLVED    · silence     · SIMULATED   history     · cancellable
+                                                                 · honest
+```
+
+**Composition root.** All eleven V8.3 subsystems are constructed in
+`cognition/orchestrator.Cognition.__init__` alongside the V8.2 ones, and reached
+as `runtime.cognition.<name>`. They take the existing `db` and `bus`, so there
+is exactly one event log and one database.
+
+**Schema separation.** V8.3 DDL lives in `SCHEMA_V83`, executed after the
+untouched V8/V8.1 `SCHEMA`. Column additions go through the existing additive
+`MIGRATIONS` mechanism, guarded by `PRAGMA table_info`, so an existing database
+upgrades in place without data loss.
+
+**Surface follows the thought (§33).** Conversation stays primary. The
+Observatory gains three panels — Missions, Continuous state, Background
+cognition — and they are strictly inspection surfaces over real recorded data.
+Nothing in the UI holds parallel state, and nothing there fabricates activity:
+the Background panel shows empty cycles as empty.

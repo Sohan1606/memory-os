@@ -227,3 +227,33 @@ it can recover; it does not abort the turn.
 - **No vision** without a vision model — reported `NOT_CONFIGURED`, never
   downgraded to a guess.
 - **Semantic continuity decay** is time-based (45 days), not meaning-based.
+
+---
+
+## V8.3 — Continuous Cognition
+
+V8.3 closes the loop between turns. See [`V8.3.md`](V8.3.md) for the full
+design; this section records how the new pieces relate to the V8.2 systems they
+extend.
+
+| V8.3 system | Extends | Relationship |
+|---|---|---|
+| `observation.ObservationLog` | — | New canonical evidence layer that the other systems record into |
+| `missions.MissionRegistry` | the unused `mission.*` event vocabulary | Implements the entity those events were reserved for |
+| `world_v2.WorldStateV2` | `world.WorldModel` | Wraps it; adds change provenance, staleness, reconciliation. Does not replace it |
+| `attention.AttentionEngineV2` | `autonomy.AttentionEngine` | Wraps its scoring; adds relevance, mission context, learned silence |
+| `simulation.SimulationEngine` | `sandbox.Sandbox` | Reuses its projection; adds snapshot isolation, `SIMULATED` tagging, commit guards |
+| `maintenance.MaintenanceV2` | `health.MemoryHealthEngine` | Adds a read-only review safe for background use, and evidence-gated reinforcement |
+| `background.BackgroundCognition` | — | Orchestrates the above under strict bounds |
+| `timemachine.TimeMachine` | `world_changes`, `mission_events` | Reads history the V8.3 writers now produce |
+
+### Epistemic discipline (§39)
+
+The five states — `OBSERVED`, `INFERRED`, `PREDICTED`, `SIMULATED`, `UNKNOWN` —
+are stored, not inferred at display time, and are never silently upgraded. The
+promotion rule enforces the boundary that matters most: **only what was
+genuinely observed may become a durable memory.**
+
+A simulation is not a fact. A prediction is not an observation. A stale fact is
+not a false one. An empty background cycle is not activity. Each of these
+distinctions is asserted by a test.

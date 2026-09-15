@@ -235,3 +235,46 @@ $ cd backend && .venv/bin/python -m pytest
 ```
 
 The V8.1 baseline (**179 passed, 8 skipped**) is fully preserved.
+
+---
+
+## V8.3 — Continuous Cognition
+
+Full suite: **552 passed, 10 skipped** (`python -m pytest`, ~169 s). The V8.2
+baseline of 412/10 is fully preserved; V8.3 adds **140** tests.
+
+| Suite | Tests | Covers |
+|---|---|---|
+| `test_v83_missions.py` | 15 | Lifecycle, bounded planning, derived progress, replanning triggers, resume brief, persistence across registry instances |
+| `test_v83_world_observations.py` | 24 | Change provenance, per-class staleness, all six reconciliation verdicts, observation/memory separation, promotion rules |
+| `test_v83_background_attention.py` | 29 | Empty-cycle honesty, rate limiting, deadlines, cancellation, contained failure, non-destructiveness, attention ladder, learned silence |
+| `test_v83_simulation_history.py` | 36 | Simulation isolation and commit guards, time-machine availability, prediction windows, document parsing honesty, connectors, research, maintenance |
+| `test_v83_api.py` | 27 | Every V8.3 route plus V8.2 compatibility checks |
+| `test_v83_scenarios.py` | 9 | §38 end-to-end living-system scenarios A–G, epistemic separation, full restart persistence |
+
+### What the tests deliberately assert *cannot* happen
+
+Much of this suite is negative testing — the honesty guarantees are only real
+if something fails when they are violated:
+
+- a background cycle that finds nothing **cannot** report activity
+- a simulation **cannot** alter world, mission or memory rows
+  (asserted by byte-comparing table contents before and after)
+- an `INFERRED` or `SIMULATED` observation **cannot** be promoted to memory
+- retrieval alone **cannot** reinforce a memory
+- silence **cannot** become an accepted intervention or a resolved prediction
+- the time machine **cannot** answer for a moment before recorded history
+- an evenly-matched world conflict **cannot** be silently resolved
+- a PDF **cannot** acquire content it was never parsed for
+
+### Verified outside the suite
+
+- **Browser QA** — Playwright, 5 routes × desktop 1440×900 and mobile 390×844:
+  0 console errors, 0 page errors, 0 horizontal overflow.
+- **Restart persistence** — counts and mission history identical across a real
+  uvicorn restart.
+- **Degraded path** — with Ollama unreachable, every V8.3 subsystem still
+  functions and no capability is claimed.
+- **Real Ollama path** — NOT VERIFIABLE IN THIS ENVIRONMENT (no server
+  reachable). Covered by scripted-model tests; real-model tests skip with an
+  explicit reason rather than passing silently.

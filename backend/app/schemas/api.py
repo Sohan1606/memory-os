@@ -165,3 +165,120 @@ class PredictionObservationRequest(BaseModel):
     supports: bool | None = None
     evidence: list[str] = Field(default_factory=list)
     user_id: str | None = None
+
+
+# ------------------------------------------------------------- v8.3 requests
+class MissionCreateRequest(BaseModel):
+    """Create a long-running mission (§10)."""
+
+    title: str = Field(min_length=3, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    scope: str | None = Field(default=None, max_length=500)
+    constraints: list[str] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
+    priority: float = Field(default=0.5, ge=0.0, le=1.0)
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class MissionStateRequest(BaseModel):
+    """Move a mission through its lifecycle, always with a reason."""
+
+    state: str = Field(min_length=3, max_length=20)
+    reason: str = Field(min_length=3, max_length=500)
+    evidence: list[str] = Field(default_factory=list)
+    blocked_reason: str | None = Field(default=None, max_length=500)
+    waiting_on: str | None = Field(default=None, max_length=500)
+    user_id: str | None = None
+
+
+class MissionStepRequest(BaseModel):
+    summary: str = Field(min_length=3, max_length=300)
+    kind: str = Field(default="task", max_length=20)
+    depends_on: str | None = None
+    user_id: str | None = None
+
+
+class ObservationRequest(BaseModel):
+    """Record evidence. Not automatically a memory (§17)."""
+
+    content: str = Field(min_length=1, max_length=4000)
+    source: str = Field(default="conversation", max_length=30)
+    origin: str = Field(min_length=1, max_length=300)
+    epistemic_status: str = Field(default="OBSERVED", max_length=20)
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+    subject_kind: str | None = None
+    subject_id: str | None = None
+    user_id: str | None = None
+
+
+class OutcomeObservationRequest(BaseModel):
+    """Report how something actually turned out (§18)."""
+
+    observation: str = Field(min_length=1, max_length=2000)
+    supports: bool | None = None
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class WorldReconcileRequest(BaseModel):
+    """Offer a world claim and let reconciliation decide what it means (§8)."""
+
+    kind: str = Field(min_length=3, max_length=30)
+    label: str = Field(min_length=3, max_length=120)
+    state: str = Field(default="active", max_length=20)
+    detail: str | None = Field(default=None, max_length=1000)
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+    explicit_correction: bool = False
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class BackgroundControlRequest(BaseModel):
+    """Enable / disable / pause / resume background cognition (§13)."""
+
+    state: str = Field(min_length=4, max_length=10)
+    reason: str | None = Field(default=None, max_length=300)
+    user_id: str | None = None
+
+
+class BackgroundRunRequest(BaseModel):
+    trigger: str = Field(default="manual", max_length=40)
+    force: bool = False
+    deadline_s: float = Field(default=10.0, gt=0.0, le=60.0)
+    user_id: str | None = None
+
+
+class SimulationRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+    assumptions: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class SimulationCommitRequest(BaseModel):
+    """Applying a simulation requires explicit confirmation AND changes (§20)."""
+
+    confirm: bool = False
+    changes: list[dict] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class AttentionRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    urgency: float = Field(default=0.5, ge=0.0, le=1.0)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    relevance: float | None = Field(default=None, ge=0.0, le=1.0)
+    mission_id: str | None = None
+    user_id: str | None = None
+
+
+class AttentionReactionRequest(BaseModel):
+    accepted: bool
+    detail: str | None = Field(default=None, max_length=500)
+    user_id: str | None = None
+
+
+class ResearchRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+    user_id: str | None = None

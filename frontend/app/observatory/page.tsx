@@ -9,10 +9,13 @@ import { useCallback, useEffect, useState } from "react";
 
 import ActivityFeed from "@/components/observatory/ActivityFeed";
 import AutonomyPanel from "@/components/observatory/AutonomyPanel";
+import BackgroundPanel from "@/components/observatory/BackgroundPanel";
 import CapabilityPanel from "@/components/observatory/CapabilityPanel";
 import CognitivePolicyPanel from "@/components/observatory/CognitivePolicyPanel";
 import ContinuityPanel from "@/components/observatory/ContinuityPanel";
+import ContinuousStatePanel from "@/components/observatory/ContinuousStatePanel";
 import InfluencePanel from "@/components/observatory/InfluencePanel";
+import MissionPanel from "@/components/observatory/MissionPanel";
 import LearningPanel from "@/components/observatory/LearningPanel";
 import MemoryHealthPanel from "@/components/observatory/MemoryHealthPanel";
 import ProviderPanel from "@/components/observatory/ProviderPanel";
@@ -106,7 +109,10 @@ export default function ObservatoryPage() {
         display: "grid", gap: "1.5rem",
         gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
       }}>
+        <MissionPanel refreshKey={refreshKey} />
         <WorldPanel refreshKey={refreshKey} />
+        <ContinuousStatePanel refreshKey={refreshKey} />
+        <BackgroundPanel refreshKey={refreshKey} />
         <ActivityFeed
           developer={developer}
           onSelect={(e) => {
