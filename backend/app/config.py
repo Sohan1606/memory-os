@@ -41,6 +41,11 @@ class Settings:
     llm_timeout_s: float = float(os.getenv("LLM_TIMEOUT_S", "120"))
     llm_num_ctx: int = int(os.getenv("LLM_NUM_CTX", "4096"))
 
+    # v8.2 agent-loop bounds. A local model can stall, so every turn is
+    # explicitly capped in both tool rounds and wall-clock time.
+    max_tool_depth: int = int(os.getenv("MAX_TOOL_DEPTH", "4"))
+    turn_timeout_s: float = float(os.getenv("TURN_TIMEOUT_S", "180"))
+
     whisper_model: str | None = os.getenv("WHISPER_MODEL") or None
 
     # retrieval tuning (single source of truth)

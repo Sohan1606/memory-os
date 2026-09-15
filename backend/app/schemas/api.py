@@ -103,3 +103,65 @@ class DecisionRequest(BaseModel):
     expectation: str = Field(default="", max_length=300)
     influenced_by: list[str] = Field(default_factory=list)
     user_id: str | None = None
+
+
+# --------------------------------------------------------------- v8.2 schemas
+class InfluenceOutcomeRequest(BaseModel):
+    """Attach an observed outcome to a recorded memory influence."""
+
+    verdict: str = Field(
+        description="SUPPORTED | CONTRADICTED | NEUTRAL | INSUFFICIENT EVIDENCE")
+    detail: str = Field(min_length=1, max_length=500)
+    # Evidence is required for verdicts that move reputation. Without it the
+    # ledger downgrades the verdict to INSUFFICIENT EVIDENCE rather than
+    # letting an unevidenced claim change a memory's track record.
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+    @field_validator("verdict")
+    @classmethod
+    def known_verdict(cls, v: str) -> str:
+        allowed = {"SUPPORTED", "CONTRADICTED", "NEUTRAL",
+                   "INSUFFICIENT EVIDENCE"}
+        value = v.strip().upper()
+        if value not in allowed:
+            raise ValueError(f"verdict must be one of {sorted(allowed)}")
+        return value
+
+
+class NeedEvaluationRequest(BaseModel):
+    correct: bool
+    user_id: str | None = None
+
+
+class FocusRequest(BaseModel):
+    """Which object the user currently has open in the inspector."""
+
+    subject_kind: str = Field(min_length=1, max_length=40)
+    subject_id: str = Field(min_length=1, max_length=100)
+    session_id: str = Field(default="default", max_length=100)
+    label: str | None = Field(default=None, max_length=200)
+    user_id: str | None = None
+
+
+class ControlRequest(BaseModel):
+    """A natural-language instruction about the system's own cognition."""
+
+    message: str = Field(min_length=1, max_length=1000)
+    session_id: str = Field(default="default", max_length=100)
+    user_id: str | None = None
+
+
+class PredictionObservationRequest(BaseModel):
+    """
+    An observation of reality, offered against an open prediction.
+
+    `supports` is deliberately optional: when it is None the engine decides
+    from the observation text whether the evidence actually bears on the
+    prediction, and refuses to score it when it does not.
+    """
+
+    observation: str = Field(min_length=1, max_length=500)
+    supports: bool | None = None
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None

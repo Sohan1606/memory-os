@@ -1,8 +1,12 @@
 # MEMORY//OS
 
-**An AI assistant that actually remembers.** A local-first agent with persistent
-long-term memory — LangGraph, LangChain tools, ChromaDB and local embeddings —
-presented through a cinematic dark product interface.
+**MEMORY//OS V8.2 — Cognitive Core.**
+
+An AI assistant that actually remembers — and can tell you *why* it believed
+something, *what that belief changed*, and *whether it turned out to be right*.
+A local-first agent with persistent long-term memory — LangGraph, LangChain
+tools, ChromaDB and local embeddings — presented through a cinematic dark
+product interface.
 
 Runs with **zero API keys and zero paid services.**
 
@@ -63,9 +67,11 @@ log are fully real in demo mode** — only free-form model tool choice is absent
 
 ## Verified results
 
-- Backend tests: **74 passed, 1 skipped** (the skip is the optional LangMem case)
-- `npm run lint` — clean · `npm run typecheck` — clean · `npm run build` — 7/7 pages
-- Browser QA: 14/14 Playwright checks, zero console errors
+- Backend tests: **412 passed, 10 skipped** (V8.1 baseline of 179/8 fully preserved)
+- `npm run lint` — clean · `npx tsc --noEmit` — clean · `npm run build` — 6/6 pages
+- Browser QA: desktop 1440×900 + mobile 390×844, 5 pages each, zero console errors
+- Restart persistence: memories, influences, arbitrations, intent transitions,
+  execution traces and focus all survive a backend restart
 - `"what do you remember about my projects"` → 4 PROJECT memories (0.45/0.41/0.40/0.31)
 - Junk query → `NO_STRONG_MATCH` (it declines rather than inventing a match)
 - `"I have switched to light mode."` → existing dark-mode memory updated to v2
@@ -92,6 +98,7 @@ hardcoded datasets and no fake buttons.
 | [`docs/SETUP.md`](docs/SETUP.md) | Windows + Unix setup, config, troubleshooting |
 | [`docs/LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Ollama install, model choice, health check, troubleshooting |
 | [`docs/V8.1.md`](docs/V8.1.md) | V8 → V8.1: real agent, extraction, perception, memory health |
+| [`docs/V8.2.md`](docs/V8.2.md) | V8.1 → V8.2: the cognitive core — routing, execution tracing, the causal chain |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test coverage, verified results, bugs caught |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Visual language, motion, the scroll sequence |
 | [`PROJECT_STATUS.md`](PROJECT_STATUS.md) | Honest status matrix and limitations |
@@ -135,3 +142,43 @@ been measured it returns `INSUFFICIENT EVIDENCE`, `NOT CONFIGURED`,
 `NOT CONNECTED` or `DEGRADED`. See `docs/COGNITION.md`, including the explicit
 *"What is NOT implemented"* section.
 
+
+## v8.2 — Cognitive Core
+
+V8.2 does not add features on top of V8.1; it makes the cognition V8.1
+*described* actually run, be recorded, and be inspectable — and it makes the
+system refuse to claim anything it has not observed.
+
+**What v8.2 adds**
+
+- **Real capability detection and routing.** Five capabilities resolved from the
+  provider and a known-model table, each with the reason for its state. `UNKNOWN`
+  never satisfies a requirement — an unrecognised model is not assumed to work.
+  Vision with no vision model is `NOT_CONFIGURED`, not quietly downgraded.
+- **A genuinely model-driven agent loop**, traced through eleven stages with a
+  depth cap, timeout, duplicate-call detection, tool-failure recovery and
+  cancellation. When it stops early it says why instead of returning nothing.
+- **One canonical context bundle** per turn — bounded, relevance-ranked, and
+  carrying source, confidence and permission for every item. Truncation is
+  declared; unconnected sources are declared and contribute nothing.
+- **Memory arbitration V2** — nine weighted factors, persisted records,
+  contradicted and quarantined memories excluded and reported.
+- **The causal chain: memory → influence → outcome → reputation.** Retrieval is
+  *not* influence. An outcome with no evidence is downgraded to
+  `INSUFFICIENT EVIDENCE` and reputation does not move.
+- **Prediction → reality → learning.** A prediction is scored only when reality
+  actually resolved it; error, surprise and a learning signal are persisted.
+- **Evidence-based regret.** A bad outcome with no recorded expectation and no
+  cited evidence is `INSUFFICIENT EVIDENCE`, not a number.
+- **Intent evolution V2** — probabilistic, with uncertainty and stated reasons.
+  A question never creates an intent fact; an unconfirmed second goal is
+  `emerging` and does not displace the one you confirmed.
+- **Autonomy governor V2** — ACT / ASK / WAIT / DO_NOTHING / BLOCKED.
+- **User-controlled cognition in plain language** — "forget that", "that's
+  wrong", "why do you believe that?". Strict phrasing only, and it refuses to
+  guess which memory you meant rather than deleting the wrong one.
+- **Per-capability trust** that reads `INSUFFICIENT EVIDENCE` with no number
+  attached until there is real evidence.
+
+Full detail, including the bugs these tests caught and what is still
+NOT CONFIGURED: [`docs/V8.2.md`](docs/V8.2.md).

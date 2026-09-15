@@ -11,6 +11,7 @@ returns INSUFFICIENT EVIDENCE.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -158,24 +159,45 @@ class DecisionLog:
     def resolve(self, user_id: str, decision_id: str, actual_outcome: str, *,
                 positive: bool, tradeoffs: str | None = None,
                 lesson: str | None = None,
+                second_order: str | None = None,
+                delayed_consequences: str | None = None,
+                opportunity_cost: str | None = None,
+                regret_evidence: list[str] | None = None,
                 correlation_id: str | None = None) -> dict[str, Any] | None:
         """
-        Close a decision with what actually happened.
+        Close a decision with what actually happened (§14).
 
-        Regret is computed as the gap between expectation and reality, not as a
-        mood: a positive outcome yields 0.0, a negative one 1.0 scaled by whether
-        an explicit expectation existed to be violated.
+        Regret is EVIDENCE-BASED, never a mood and never a guess:
+
+          * A positive outcome is regret 0.0.
+          * A negative outcome with no stated evidence and no prior expectation
+            is NOT scored — regret stays None and the record says
+            INSUFFICIENT EVIDENCE. We will not manufacture a number.
+          * Otherwise regret is built from what we can actually point at: a
+            violated explicit expectation, cited evidence, and a measurable
+            opportunity cost.
+
+        Second-order effects, delayed consequences and opportunity cost are
+        recorded verbatim when the caller observed them, and left NULL when they
+        did not — an unobserved consequence is not the same as no consequence.
         """
         row = self.db.query_one("SELECT * FROM decisions WHERE id=? AND user_id=?",
                                 (decision_id, user_id))
         if row is None or row["status"] != "open":
             return None
 
-        regret = 0.0 if positive else (0.8 if row["expected_outcome"] else 0.5)
+        evidence = [e for e in (regret_evidence or []) if str(e).strip()]
+        regret, regret_note = self._score_regret(
+            positive=positive, expected=row["expected_outcome"],
+            evidence=evidence, opportunity_cost=opportunity_cost)
+
         self.db.execute(
             "UPDATE decisions SET actual_outcome=?, tradeoffs=?, regret=?, lesson=?,"
-            " status='resolved', resolved_at=? WHERE id=?",
-            (actual_outcome, tradeoffs, regret, lesson, _now(), decision_id))
+            " second_order=?, delayed_consequences=?, opportunity_cost=?,"
+            " regret_evidence=?, status='resolved', resolved_at=? WHERE id=?",
+            (actual_outcome, tradeoffs, regret, lesson, second_order,
+             delayed_consequences, opportunity_cost,
+             json.dumps(evidence) if evidence else None, _now(), decision_id))
 
         self.bus.emit(user_id, "outcome.recorded", actual_outcome,
                       subject_kind="decision", subject_id=decision_id,
@@ -185,17 +207,56 @@ class DecisionLog:
             self.bus.emit(user_id, "tradeoff.detected", tradeoffs,
                           subject_kind="decision", subject_id=decision_id,
                           correlation_id=correlation_id)
-        if regret >= 0.5:
+        if regret is not None and regret >= 0.5:
             self.bus.emit(user_id, "regret.detected",
                           f"Outcome fell short of what was expected: {actual_outcome}",
                           subject_kind="decision", subject_id=decision_id,
-                          correlation_id=correlation_id, payload={"regret": regret})
+                          correlation_id=correlation_id,
+                          payload={"regret": regret, "evidence": evidence,
+                                   "basis": regret_note})
 
         # Propagate the outcome back to every memory that informed the decision.
         outcome_id = f"o_{uuid.uuid4().hex[:12]}"
         self.causal.link(user_id, "decision", decision_id, "outcome", outcome_id,
                          relation="caused", weight=1.0, correlation_id=correlation_id)
-        return self.get(decision_id)
+        result = self.get(decision_id)
+        if result is not None:
+            result["regret_basis"] = regret_note
+        return result
+
+    @staticmethod
+    def _score_regret(*, positive: bool, expected: Any,
+                      evidence: list[str],
+                      opportunity_cost: str | None) -> tuple[float | None, str]:
+        """
+        Derive a regret score from observable facts, or decline to score it.
+
+        Returns (regret, basis). A None regret means INSUFFICIENT EVIDENCE.
+        """
+        if positive:
+            return 0.0, ("No regret: the outcome matched or beat what was "
+                         "expected.")
+
+        if not expected and not evidence and not opportunity_cost:
+            return None, ("INSUFFICIENT EVIDENCE to score regret: the outcome was "
+                          "negative, but no expectation was recorded beforehand "
+                          "and no evidence of a better alternative was given. "
+                          "A bad result is not by itself proof of a bad decision.")
+
+        score = 0.0
+        parts: list[str] = []
+        if expected:
+            score += 0.5
+            parts.append("an explicit expectation was recorded and not met")
+        if evidence:
+            score += min(0.3, 0.15 * len(evidence))
+            parts.append(f"{len(evidence)} piece(s) of cited evidence")
+        if opportunity_cost:
+            score += 0.2
+            parts.append("a concrete opportunity cost was identified")
+
+        return round(min(1.0, score), 3), ("Regret scored from " +
+                                           ", ".join(parts) + ".")
 
     def get(self, decision_id: str) -> dict[str, Any] | None:
         row = self.db.query_one("SELECT * FROM decisions WHERE id=?", (decision_id,))
@@ -203,6 +264,12 @@ class DecisionLog:
             return None
         d = dict(row)
         d["alternatives"] = [a for a in (d.get("alternatives") or "").split("\n") if a]
+        try:
+            d["regret_evidence"] = json.loads(d.get("regret_evidence") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d["regret_evidence"] = []
+        if d.get("status") == "resolved" and d.get("regret") is None:
+            d["regret_label"] = "INSUFFICIENT EVIDENCE"
         return d
 
     def list(self, user_id: str) -> list[dict[str, Any]]:

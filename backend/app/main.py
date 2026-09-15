@@ -1,7 +1,9 @@
 """MEMORY//OS FastAPI application."""
 from __future__ import annotations
 
+import json
 import logging
+import uuid
 from typing import Any
 
 from fastapi import Body, Depends, FastAPI, HTTPException, UploadFile, File
@@ -12,10 +14,14 @@ from .cognition.autonomy import LEVELS
 from .cognition.events import EVENT_TYPES
 from .config import settings
 from .runtime import Runtime, get_runtime
+from .cognition.continuity import REASONS as CONTINUITY_REASONS
 from .schemas.api import (AutonomyRequest, ChatRequest, ChatResponse,
-                          ConsolidateRequest, DecisionRequest, ImportRequest,
+                          ConsolidateRequest, ControlRequest, DecisionRequest,
+                          FocusRequest,
+                          ImportRequest, InfluenceOutcomeRequest,
                           MemoryCreateRequest, MemoryUpdateRequest,
-                          OutcomeRequest, PredictionResolveRequest,
+                          NeedEvaluationRequest, OutcomeRequest,
+                          PredictionObservationRequest, PredictionResolveRequest,
                           SandboxRequest, SearchRequest)
 
 logging.basicConfig(level=logging.INFO)
@@ -66,14 +72,20 @@ def chat(req: ChatRequest, runtime: Runtime = Depends(rt)) -> ChatResponse:
     # v8 cognitive loop runs alongside the agent. It builds understanding
     # (intent, world, prediction, attention) but never blocks the reply: if it
     # fails the conversation continues and the failure is recorded as an event.
+    # v8.2: one correlation id spans the cognitive loop AND the agent's
+    # execution trace, so /api/cognition/turn/{id} and /api/execution/{id}
+    # describe the same turn.
+    correlation_id = f"turn_{uuid.uuid4().hex[:12]}"
     trace: dict[str, Any] | None = None
     try:
         trace = runtime.cognition.process_turn(
-            user_id, req.message, conversation_id=req.thread_id)
+            user_id, req.message, conversation_id=req.thread_id,
+            correlation_id=correlation_id)
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Cognitive loop failed for this turn: %s", exc)
 
-    result = runtime.agent.run(user_id, req.thread_id, req.message)
+    result = runtime.agent.run(user_id, req.thread_id, req.message,
+                               correlation_id=correlation_id)
     for role, content in (("user", req.message), ("assistant", result["answer"])):
         runtime.db.execute(
             "INSERT INTO messages (thread_id, user_id, role, content, created_at)"
@@ -99,6 +111,27 @@ def _summarize_trace(trace: dict[str, Any]) -> dict[str, Any]:
     """Compact, human-readable view of the turn for the primary UI."""
     attention = trace.get("attention")
     arbitration = trace.get("arbitration")
+    transition = trace.get("intent_transition") or {}
+    context = trace.get("context") or {}
+
+    # v8.2 arbitration records carry the winner as a flat candidate. The v8.1
+    # nested {"memory": {...}} shape is still accepted so older callers and
+    # stored traces keep working.
+    summary_arbitration = None
+    if arbitration and arbitration.get("winner"):
+        winner = arbitration["winner"]
+        content = (winner.get("content")
+                   or (winner.get("memory") or {}).get("content"))
+        summary_arbitration = {
+            "winner": content,
+            "winner_id": (winner.get("memory_id")
+                          or (winner.get("memory") or {}).get("id")),
+            "explanation": (arbitration.get("reason")
+                            or arbitration.get("explanation")),
+            "conflict": bool(arbitration.get("conflict")),
+            "uncertainty": arbitration.get("uncertainty"),
+        }
+
     return {
         "need": trace["need"]["need"],
         "need_confidence": trace["need"]["confidence"],
@@ -107,15 +140,27 @@ def _summarize_trace(trace: dict[str, Any]) -> dict[str, Any]:
                             "state": e["state"]} for e in trace["world_entities"]],
         "recalled": trace["retrieval"]["count"],
         "degraded": trace["retrieval"]["degraded"],
-        "arbitration": ({"winner": arbitration["winner"]["memory"]["content"],
-                         "explanation": arbitration["explanation"],
-                         "conflict": arbitration["conflict"]}
-                        if arbitration else None),
+        "arbitration": summary_arbitration,
         "predictions": len(trace.get("predictions") or []),
         "attention": ({"decision": attention["decision"],
                        "why_now": attention["why_now"],
                        "surface": attention["surface"]} if attention else None),
         "autonomy": trace["autonomy_level"],
+        # ------------------------------------------------------------- v8.2
+        "mode": (trace.get("routing") or {}).get("mode"),
+        "degraded_mode": bool((trace.get("routing") or {}).get("degraded")),
+        "intent_changed": bool(transition.get("changed")),
+        "intent_changed_because": transition.get("changed_because"),
+        "intent_uncertainty": transition.get("uncertainty"),
+        "context_items": context.get("item_count", 0),
+        "context_truncated": bool(context.get("truncated")),
+        "continuity": [{"summary": c["summary"], "reason": c["reason_label"]}
+                       for c in (trace.get("continuity") or [])[:3]],
+        "policy_changes": [{"key": p["key"], "value": p["value"]}
+                           for p in (trace.get("policy_changes") or [])
+                           if p.get("changed")],
+        "influenced_by": [i["memory_id"] for i in (trace.get("influences") or [])],
+        "excluded_memories": trace["retrieval"].get("excluded_count", 0),
     }
 
 
@@ -503,7 +548,288 @@ def provider_status(runtime: Runtime = Depends(rt)):
     status = runtime.provider.status()
     return {"provider": status.as_dict(),
             "extraction": runtime.cognition.extractor.status(),
-            "perception": runtime.cognition.perception.capabilities()}
+            "perception": runtime.cognition.perception.capabilities(),
+            # v8.2: what the model can actually do, and how each task will run.
+            "capabilities": runtime.cognition.router.report().as_dict(),
+            "routing": runtime.cognition.router.routing_table()}
+
+
+# ======================================================================
+#                       V8.2 COGNITIVE CORE ROUTES
+# ======================================================================
+
+@app.get("/api/capabilities")
+def capabilities(runtime: Runtime = Depends(rt)):
+    """
+    Honest capability report for the active provider and model.
+
+    Capabilities are SUPPORTED / NOT_SUPPORTED / UNKNOWN. UNKNOWN is never
+    treated as available.
+    """
+    return {"capabilities": runtime.cognition.router.report().as_dict(),
+            "routing": runtime.cognition.router.routing_table()}
+
+
+@app.get("/api/capabilities/route")
+def capability_route(task: str | None = None, runtime: Runtime = Depends(rt)):
+    """
+    How tasks would execute right now, and why.
+
+    Without `task` this returns the full routing table, so the Observatory can
+    show every task class and its honest mode in one call.
+    """
+    router = runtime.cognition.router
+    if task is None:
+        return {"routes": router.routing_table()}
+    try:
+        return router.route(task).as_dict()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ------------------------------------------------------------------ execution
+@app.get("/api/execution/{correlation_id}")
+def execution_trace(correlation_id: str, runtime: Runtime = Depends(rt)):
+    """
+    The real execution trace for one turn: MODEL_CALL, TOOL_DECISION,
+    TOOL_RESULT, MODEL_REVISION, FINAL_RESPONSE.
+    """
+    steps = runtime.cognition.traces.for_correlation(correlation_id)
+    if not steps:
+        raise HTTPException(status_code=404,
+                            detail="No execution trace for that correlation id.")
+    return {"correlation_id": correlation_id, "steps": steps,
+            "count": len(steps)}
+
+
+@app.get("/api/execution")
+def recent_executions(user_id: str | None = None, limit: int = 20,
+                      runtime: Runtime = Depends(rt)):
+    return {"traces": runtime.cognition.traces.recent(
+        uid(runtime, user_id), limit=min(limit, 100))}
+
+
+# ---------------------------------------------------------------- arbitration
+@app.get("/api/arbitration")
+def arbitrations(user_id: str | None = None, limit: int = 20,
+                 runtime: Runtime = Depends(rt)):
+    return {"records": runtime.cognition.arbiter_v2.recent(
+        uid(runtime, user_id), limit=min(limit, 100))}
+
+
+@app.get("/api/arbitration/{arbitration_id}")
+def arbitration_detail(arbitration_id: str, runtime: Runtime = Depends(rt)):
+    record = runtime.cognition.arbiter_v2.get(arbitration_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Unknown arbitration record.")
+    return record
+
+
+# ------------------------------------------------------------------ influence
+@app.get("/api/influence")
+def influences(user_id: str | None = None, pending: bool = False,
+               limit: int = 50, runtime: Runtime = Depends(rt)):
+    """Recorded memory influences. `pending=true` returns unresolved ones."""
+    u = uid(runtime, user_id)
+    ledger = runtime.cognition.influence
+    items = (ledger.pending(u, limit=min(limit, 200)) if pending
+             else ledger.recent(u, limit=min(limit, 200)))
+    return {"influences": items, "count": len(items)}
+
+
+@app.post("/api/influence/{influence_id}/outcome")
+def influence_outcome(influence_id: str, body: InfluenceOutcomeRequest,
+                      runtime: Runtime = Depends(rt)):
+    """
+    Attach an OBSERVED outcome to a memory influence.
+
+    Reputation only moves for SUPPORTED / CONTRADICTED backed by evidence.
+    """
+    try:
+        return runtime.cognition.influence.record_outcome(
+            uid(runtime, body.user_id), influence_id, verdict=body.verdict,
+            detail=body.detail, evidence=body.evidence)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown influence id.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/memories/{memory_id}/impact")
+def memory_impact(memory_id: str, user_id: str | None = None,
+                  runtime: Runtime = Depends(rt)):
+    """The causal story of one memory, as far as evidence allows."""
+    return runtime.cognition.influence.impact(uid(runtime, user_id), memory_id)
+
+
+# --------------------------------------------------------------------- policy
+@app.get("/api/cognitive-policy")
+def cognitive_policy(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Behavioural policy with confidence, evidence and reasons."""
+    u = uid(runtime, user_id)
+    engine = runtime.cognition.policy
+    return {"policies": engine.list(u), "effective": engine.effective(u),
+            "learned": engine.learned(u)}
+
+
+@app.get("/api/cognitive-policy/{key}")
+def cognitive_policy_explain(key: str, user_id: str | None = None,
+                             runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.cognition.policy.explain(uid(runtime, user_id), key)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.delete("/api/cognitive-policy/{key}")
+def cognitive_policy_revert(key: str, user_id: str | None = None,
+                            runtime: Runtime = Depends(rt)):
+    """'Stop doing that' — revert a learned policy to its default."""
+    try:
+        return runtime.cognition.policy.revert(uid(runtime, user_id), key)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+# ---------------------------------------------------------------------- trust
+@app.get("/api/trust")
+def capability_trust(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Per-capability reliability. No single global trust score."""
+    u = uid(runtime, user_id)
+    return {"capabilities": runtime.cognition.capability_trust.all(u)}
+
+
+# --------------------------------------------------------------------- intent
+@app.get("/api/intents/transitions")
+def intent_transitions(user_id: str | None = None, intent_id: str | None = None,
+                       limit: int = 50, runtime: Runtime = Depends(rt)):
+    return {"transitions": runtime.cognition.intent_evolution.transitions(
+        uid(runtime, user_id), intent_id, limit=min(limit, 200))}
+
+
+@app.get("/api/intents/{intent_id}/why")
+def intent_why(intent_id: str, user_id: str | None = None,
+               runtime: Runtime = Depends(rt)):
+    """'Why did this intent change?' from the transition ledger."""
+    return runtime.cognition.intent_evolution.explain(
+        uid(runtime, user_id), intent_id)
+
+
+# ---------------------------------------------------------------------- needs
+@app.get("/api/needs")
+def needs(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    u = uid(runtime, user_id)
+    rows = runtime.db.query(
+        "SELECT id, need, confidence, signals, source, utterance, was_correct,"
+        " created_at FROM need_hypotheses WHERE user_id=? ORDER BY id DESC"
+        " LIMIT 50", (u,))
+    hypotheses = []
+    for row in rows:
+        entry = dict(row)
+        try:
+            entry["signals"] = json.loads(entry.get("signals") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            entry["signals"] = []
+        # was_correct stays None when no feedback exists - that is honest,
+        # not a default of "correct".
+        entry["evaluated"] = entry["was_correct"] is not None
+        hypotheses.append(entry)
+    return {"recent": runtime.cognition.needs.recent(u, limit=10),
+            "hypotheses": hypotheses,
+            "accuracy": runtime.cognition.needs.accuracy(u)}
+
+
+@app.post("/api/needs/{hypothesis_id}/evaluate")
+def evaluate_need(hypothesis_id: str, body: NeedEvaluationRequest,
+                  runtime: Runtime = Depends(rt)):
+    result = runtime.cognition.needs.evaluate(
+        uid(runtime, body.user_id), hypothesis_id, body.correct)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown need hypothesis.")
+    return result
+
+
+# ----------------------------------------------------------------- continuity
+@app.get("/api/continuity")
+def continuity(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Open items worth carrying forward, each with a stated reason."""
+    u = uid(runtime, user_id)
+    engine = runtime.cognition.continuity
+    engine.refresh(u)
+    return {"items": engine.open_items(u), "reasons": CONTINUITY_REASONS}
+
+
+@app.post("/api/continuity/{item_id}/close")
+def close_continuity(item_id: str, user_id: str | None = None,
+                     runtime: Runtime = Depends(rt)):
+    result = runtime.cognition.continuity.close(uid(runtime, user_id), item_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Unknown continuity item.")
+    return result
+
+
+# ---------------------------------------------------------------------- focus
+@app.post("/api/focus")
+def set_focus(body: FocusRequest, runtime: Runtime = Depends(rt)):
+    """Record which object the user has open, for 'that memory' resolution."""
+    try:
+        return runtime.cognition.focus.set_focus(
+            uid(runtime, body.user_id), body.subject_kind, body.subject_id,
+            session_id=body.session_id, label=body.label)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/focus")
+def get_focus(user_id: str | None = None, session_id: str = "default",
+              runtime: Runtime = Depends(rt)):
+    return {"focus": runtime.cognition.focus.current(
+        uid(runtime, user_id), session_id=session_id)}
+
+
+@app.delete("/api/focus")
+def clear_focus(user_id: str | None = None, session_id: str = "default",
+                runtime: Runtime = Depends(rt)):
+    return {"cleared": runtime.cognition.focus.clear(
+        uid(runtime, user_id), session_id=session_id)}
+
+
+# --------------------------------------------------------------- explanations
+@app.get("/api/cognition/why-now")
+def cognition_why_now(subject_kind: str, subject_id: str,
+                      user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """'Why now?' — what made this relevant at this moment."""
+    return runtime.cognition.why_now(uid(runtime, user_id), subject_kind,
+                                     subject_id)
+
+
+@app.get("/api/memories/{memory_id}/why-used")
+def memory_why_used(memory_id: str, user_id: str | None = None,
+                    runtime: Runtime = Depends(rt)):
+    """'Why did you use this memory?' — arbitration + influence evidence."""
+    return runtime.cognition.explain_memory_use(uid(runtime, user_id), memory_id)
+
+
+# ----------------------------------------------------------------- prediction
+@app.post("/api/predictions/{prediction_id}/observe")
+def observe_prediction(prediction_id: str, body: PredictionObservationRequest,
+                       runtime: Runtime = Depends(rt)):
+    """
+    Evaluate a prediction against an OBSERVED reality.
+
+    Refuses to score the prediction when the observation does not actually
+    bear on it — see docs/V8.2.md.
+    """
+    try:
+        result = runtime.cognition.predictions.observe(
+            uid(runtime, body.user_id), prediction_id, body.observation,
+            supports=body.supports, evidence=body.evidence)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown prediction.")
+    if result is None:
+        raise HTTPException(status_code=404,
+                            detail="Unknown or already-resolved prediction.")
+    return result
 
 
 @app.get("/api/memory-health")
@@ -554,3 +880,54 @@ async def perceive(file: UploadFile = File(...), user_id: str | None = None,
     perception = runtime.cognition.perception.ingest_file(
         user, file.filename or "upload", data)
     return perception.as_dict()
+
+
+# --------------------------------------------------------- §19 user control
+@app.post("/api/control")
+def cognitive_control(body: ControlRequest, runtime: Runtime = Depends(rt)):
+    """
+    Execute a natural-language cognitive command ("forget that", "why do you
+    believe that?", "that's wrong", "stop asking me about X").
+
+    Returns 422 when the message contains no recognisable command — ordinary
+    conversation must go through /api/chat, not here.
+    """
+    user = uid(runtime, body.user_id)
+    result = runtime.cognition.control.handle(
+        user, body.message, session_id=body.session_id)
+    if result is None:
+        raise HTTPException(
+            422, "No explicit cognitive command was recognised in that message.")
+    return result
+
+
+@app.get("/api/control/commands")
+def cognitive_commands():
+    """The commands the system can actually act on, with real examples."""
+    return {
+        "commands": [
+            {"command": "FORGET", "examples": ["forget that",
+                                               "delete what I said about Redis"],
+             "effect": "Deletes the referenced memory after resolving it."},
+            {"command": "CORRECT", "examples": ["that's wrong",
+                                                "actually it's Postgres"],
+             "effect": "Records a contradiction and replaces the content."},
+            {"command": "REMEMBER", "examples": ["remember that I deploy on "
+                                                 "Tuesdays"],
+             "effect": "Stores an explicit, high-authority memory."},
+            {"command": "EXPLAIN_BELIEF", "examples": ["why do you believe that?",
+                                                       "where did you get that?"],
+             "effect": "Reports source, confidence, reputation and impact."},
+            {"command": "EXPLAIN_BEHAVIOUR",
+             "examples": ["why do you always ask so many questions?"],
+             "effect": "Explains a learned policy from its stored evidence."},
+            {"command": "STOP_TOPIC", "examples": ["stop asking me about the "
+                                                   "migration"],
+             "effect": "Records an explicit instruction that overrides "
+                       "inferred behaviour."},
+            {"command": "PRIORITISE", "examples": ["this is important"],
+             "effect": "Marks the focused memory as important."},
+        ],
+        "note": ("Commands only fire on unambiguous phrasing. If the target "
+                 "cannot be resolved the system asks rather than guessing."),
+    }
