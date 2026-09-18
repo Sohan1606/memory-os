@@ -10,11 +10,13 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Backend test suite | **PASS** | `python -m pytest` → **412 passed, 10 skipped** (V8.1 baseline of 179/8 fully preserved; V8.2 adds 241 tests) |
-| Clean install from ZIP | **PASS** | extracted to a fresh dir: `npm ci` (330 packages), lint, typecheck, build, fresh venv + pytest, browser QA — all from the extracted copy |
+| Backend test suite | **PASS** | `pytest -m "not slow"` → **651 passed, 10 skipped, 7 deselected** in 280.1 s (V8.3.1 baseline of 599/10 fully preserved; V8.3.1.1 adds 28, V8.3.1.2 adds 24) |
+| V8.3.1.1 mission action suite | **PASS** | `pytest tests/test_v8311_mission_actions.py` → **28 passed** in 4.75 s |
+| Browser QA — v8.3.1.1 (Playwright) | **PASS** | executed on this build: 5 routes × 1440×900 and 390×844 → **0 console errors, 0 page errors, 0 overflow, 0 HTTP ≥400, no error overlay**; five-turn create→pause→resume driven through the Workspace UI, final visible response reported the mission **active**, Observatory showed **ACTIVE**, activity trail showed `Tool selected: resume_mission` |
+| Clean install from ZIP | **PASS** | V8.3.1.2 ZIP (288 files, 1.9 MB) extracted to a fresh dir: no `.git`/`.venv`/`node_modules` and no local databases in the archive; fresh venv + `pytest -m "not slow"` → **651 passed, 10 skipped, 7 deselected** in 149.2 s; `npm ci`, typecheck, lint, `next build` (8/8 pages) — all from the extracted copy, exit 0 |
 | Frontend lint | **PASS** | `npm run lint` → `✔ No ESLint warnings or errors` |
 | Frontend typecheck | **PASS** | `npm run typecheck` → clean (strict + `noUnusedLocals`/`noUnusedParameters`) |
-| Frontend production build | **PASS** | `npm run build` → `✓ Compiled successfully`, 6/6 static pages |
+| Frontend production build | **PASS** | `npm run build` → `✓ Compiled successfully`, 8/8 static pages |
 | Backend over real HTTP | **PASS** | uvicorn on `0.0.0.0:8000`; health, chat, search, CRUD exercised with curl |
 | Frontend ↔ backend integration | **PASS** | `/api/*` rewrite verified end to end from the browser |
 | Browser QA — v7 (Playwright) | **PASS** | `tests/browser_qa.py` → 14/14, **0 console errors** |
@@ -22,6 +24,12 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 | Browser QA — v8.2 (Playwright) | **PASS** | 5 pages × desktop 1440×900 and mobile 390×844, **0 console errors**, 0 page errors |
 | V8.2 restart persistence | **PASS** | memories, influences, arbitrations, intent transitions, execution traces and focus all survive a backend restart |
 | V8.2 degradation | **PASS** | unreachable Ollama → `DETERMINISTIC FALLBACK`; vision `NOT_CONFIGURED`; no model capability claimed |
+| Browser QA — v8.3 (Playwright) | **PASS** | 5 routes × desktop 1440×900 and mobile 390×844 → **0 console errors, 0 page errors, 0 overflow** |
+| V8.3 restart persistence | **PASS** | missions (2), observations (5), world facts (4), world changes (2), background cycles (1), suppressions (1) and full mission history all identical across a backend restart |
+| V8.3 background safety | **PASS** | empty cycle recorded as empty; rate limit, deadline, cancellation and task budget all enforced; task failure contained |
+| V8.3 simulation isolation | **PASS** | world and mission rows byte-identical after a projection; commit refused without explicit confirmation AND changes |
+| V8.3 time machine | **PASS** | `HISTORY NOT AVAILABLE` before recorded history; state reconstructed only from `world_changes` / `mission_events` |
+| V8.3 degraded path | **PASS** | unreachable Ollama → missions, background, attention, simulation and documents all still function; `RESEARCH PROVIDER NOT CONFIGURED`, PDF `METADATA ONLY` |
 | Real Ollama model path | **NOT VERIFIABLE IN THIS ENVIRONMENT** | No Ollama server reachable. Model-path tests use a scripted model; real-model tests skip with an explicit reason rather than passing silently |
 | Mobile layout (390 px) | **PASS** | 0 px horizontal overflow on landing and workspace |
 | Reduced motion | **PASS** | full content renders; sequence pins to a static frame |
@@ -149,3 +157,125 @@ GET /api/health
 - No cross-user learning; everything is per-user-namespace.
 - Regret is scored from evidence the caller supplies; the system does not
   independently investigate.
+
+
+## V8.3 capability table
+
+Every row states what the system genuinely does, including where it does
+nothing.
+
+| Capability | State | Honest limitation |
+|---|---|---|
+| Missions | **ACTIVE** | Progress derives only from completed steps; planning capped at 7 open steps |
+| World change history | **ACTIVE** | Only from V8.3 onward — earlier state is reported `UNKNOWN`, never assumed |
+| World staleness | **ACTIVE** | Per fact-class horizons. Stale means "re-check", never "false" |
+| World reconciliation | **ACTIVE** | Evenly-matched conflicts are flagged for the user, not resolved automatically |
+| Observations | **ACTIVE** | Evidence only. Promotion to memory is explicit and `OBSERVED`-only |
+| Background cognition | **ACTIVE** | Explicitly invoked, not scheduled; no timer thread in this build |
+| Attention V2 / learned silence | **ACTIVE** | Needs ≥4 recorded reactions; silence is never read as consent |
+| Prediction windows | **ACTIVE** | Elapsed window with no evidence → `UNRESOLVED`, excluded from accuracy |
+| Time machine | **ACTIVE** | Bounded by recorded history; otherwise `HISTORY NOT AVAILABLE` |
+| Counterfactual sandbox | **ACTIVE** | Rule-based projection; isolation is structural; commit needs double confirmation |
+| Memory maintenance V2 | **ACTIVE** | Review is read-only; reinforcement requires a recorded outcome, never retrieval |
+| Document intelligence | **PARTIAL** | Text `FULL`; CSV/JSON `STRUCTURE ONLY`; PDF/DOCX/XLSX `NOT CONFIGURED`, `METADATA ONLY` |
+| Vision | **NOT CONFIGURED** | No vision model bundled; images are metadata only, never described |
+| Connectors | **NOT CONNECTED** | Calendar, email, files, tasks are interfaces only — no data is read |
+| Research mode | **NOT CONFIGURED** | `RESEARCH PROVIDER NOT CONFIGURED`; no web access, no findings generated |
+| Authentication | **ABSENT BY DESIGN** | Single-user local-first. No login, no session auth, no multi-tenant isolation. Documented, not faked |
+
+## V8.3.1.1 — Conversational Mission Action Reliability
+
+A reliability refinement discovered during real-model verification of V8.3.1,
+not a new feature. With a real `llama3.2:3b`, "Resume it." after pausing a
+mission produced a reply claiming the state was unknown.
+
+The registry was never at fault: `MissionRegistry.set_state()` performed
+`paused → active` correctly when called directly. The defect was in the tool
+surface. The only conversational route to a state change was the generic
+`update_mission_state`, which required a 3B model to pick a state enum, write a
+reason and know to omit `mission_id` — too many simultaneous decisions.
+
+**Fix:** four intention-named tools — `pause_mission`, `resume_mission`,
+`complete_mission`, `abandon_mission` — each with two optional arguments
+(`mission_id`, `reason`), all delegating to one `_transition` helper that calls
+the canonical `set_state`. The model chooses the verb; the tool resolves the
+object through existing conversational focus. Toolset 15 → 19, registered
+through the existing `_tools_for()`.
+
+This is **not** keyword routing: `graph.py` still contains no natural-language
+command dispatch on the real-model path. No new HTTP endpoints, no UI redesign,
+no change to the mission API.
+
+Truthfulness behaviours: no-ops return `NO_CHANGE` and write no history row;
+terminal missions return `TERMINAL_STATE` and are never resurrected; resuming a
+blocked mission returns `INVALID_TRANSITION`; ambiguous references return
+`AMBIGUOUS_REFERENCE` and mutate nothing.
+
+Also fixed, found during this round's browser QA: a pre-existing React
+hydration mismatch in `components/Gallery.tsx`, where SSR'd SVG geometry
+computed from `Math.sin` emitted unrounded floats whose final digit differed
+between server and client. Rounded to 3 decimal places; no visual change.
+
+See `docs/V8.3.1.md` and `docs/V8.3.1-AUDIT.md`.
+
+### Real-model verification — V8.3.1.2 release gate
+
+Run against a real Ollama `llama3.2:3b` (`MODEL_PROVIDER=ollama`,
+`OLLAMA_BASE_URL=http://127.0.0.1:11434`, `LLM_NUM_CTX=4096`), not mocked and
+not the deterministic fallback.
+
+**Gate: focused PAUSED mission + "Resume it."**
+
+```
+provider: ollama | before: paused
+elapsed: 2237s
+provider used: ollama
+TOOL TRACE:
+    TOOL_DECISION resume_mission
+    TOOL_RESULT   resume_mission
+after: active
+ANSWER: The mission "Ship the billing migration" has been resumed.
+        It is now active and ready to proceed.
+```
+
+The model selected `resume_mission` **on its own**, with no arguments, and did
+NOT call `get_mission` or `get_world_state` first. The mission ended `active`.
+`provider` is `ollama` with no `(degraded)` suffix, so this was a real model
+call. **Release gate: PASSED.** Raw output: `docs/v8312-real-model-gate-evidence.txt`.
+
+**Problem A on the real model: "What missions am I currently working on?"**
+
+```
+elapsed 2151s | provider: ollama
+    TOOL_DECISION get_current_focus
+    TOOL_RESULT   get_current_focus
+ANSWER: You are currently working on "Migrate the billing database to
+        Postgres". It is an active mission with a progress of 0%.
+```
+
+No `TOOL_FAILED`, no ValidationError. The model chose a legitimate
+mission-reading tool and surfaced the real recorded mission.
+
+**Honest performance note.** This machine has ~2 GB RAM, no GPU, and runs the
+model on CPU with swap: ~5-9 tok/s prompt, as low as 0.02 tok/s generation. A
+single tool-calling turn takes 30-40 minutes. Product timeouts were NOT changed
+to make these pass — the probes raise `llm_timeout_s` in their own config only;
+`app/config.py` still ships 120 s / 180 s, and a genuine timeout still degrades
+and reports itself rather than being hidden.
+
+### Real-model regression status for V8.3.1.1
+
+`TestRealModelMissionActions` (marked `slow`) was started against a real
+`llama3.2:3b` during the V8.3.1.1 round but was superseded before it finished:
+V8.3.1.2 changed the prompt and tool schemas it exercises. The equivalent
+verification for the current build is the V8.3.1.2 release gate recorded above,
+which passed. On this machine (~2 GB RAM, no GPU, CPU inference with swap) the V8.3.1
+real-model file of four tests took 2 h 01 m, so a six-test file running for
+hours is expected behaviour, not a hang.
+
+What **is** verified for this build is stated above: the full fast suite
+(627 passed), the frontend checks, and browser QA executed against real dev
+servers. The equivalent conversational path was additionally exercised
+end-to-end through the browser UI, where create → pause → resume produced a
+final visible response reporting the mission as **active**, backed by the real
+registry.

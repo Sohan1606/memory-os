@@ -4,6 +4,8 @@
  * browser never needs to know the backend host.
  */
 import type {
+  BackgroundCycle, BackgroundStatus, ConnectorStatus, Mission, MissionBrief,
+  ObservationStats, SilencePolicy, Suppression, WorldSnapshot,
   ChatResponse, CognitionStatus, CognitiveEvent, GraphData, Health, Intervention,
   Memory, MemoryEvent, MemoryVersion, PredictionAccuracy, ResumeBriefing,
   HealthFinding, MemoryHealthReport, PerceptionResult, ProviderStatusResponse,
@@ -319,6 +321,55 @@ export const api = {
         body: JSON.stringify({ observation, supports: opts.supports ?? null,
                                evidence: opts.evidence ?? [] }),
       }),
+
+  // ----------------------------------------------------------- v8.3
+
+  /** Long-running missions (§10). */
+  missions: (openOnly = false) =>
+    request<{ missions: Mission[] }>(
+      `/api/missions${openOnly ? "?open_only=true" : ""}`),
+
+  missionBrief: () =>
+    request<{ brief: MissionBrief }>("/api/missions/brief"),
+
+  missionHistory: (id: string) =>
+    request<{ history: Record<string, unknown>[] }>(
+      `/api/missions/${encodeURIComponent(id)}/history`),
+
+  /** Background cognition: real cycles only, including empty ones (§14). */
+  background: () => request<BackgroundStatus>("/api/background"),
+
+  setBackgroundState: (state: string) =>
+    request<{ state: string; detail: string }>("/api/background/control", {
+      method: "POST",
+      body: JSON.stringify({ state }),
+    }),
+
+  runBackgroundCycle: () =>
+    request<BackgroundCycle & { detail: string }>("/api/background/run", {
+      method: "POST",
+      body: JSON.stringify({ trigger: "observatory", force: true }),
+    }),
+
+  /** World state with per-fact freshness (§9). */
+  worldSnapshot: () => request<WorldSnapshot>("/api/world/snapshot"),
+
+  worldChanges: () =>
+    request<{ changes: Record<string, unknown>[] }>("/api/world/changes"),
+
+  /** Learned silence policy and what was deliberately not raised (§15/§16). */
+  attentionPolicy: () => request<SilencePolicy>("/api/attention/policy"),
+
+  suppressions: () =>
+    request<{ suppressions: Suppression[] }>("/api/attention/suppressions"),
+
+  /** Evidence log — distinct from memory (§17). */
+  observations: () =>
+    request<{ observations: Record<string, unknown>[];
+              stats: ObservationStats }>("/api/observations"),
+
+  /** Connector interfaces. Nothing is connected in this build (§26). */
+  connectors: () => request<ConnectorStatus>("/api/connectors"),
 
   /** Natural-language control over the system's own cognition. */
   control: (message: string, sessionId = "default") =>

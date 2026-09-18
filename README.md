@@ -1,9 +1,15 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.2 — Cognitive Core.**
+**MEMORY//OS V8.3.1 — Conversational Cognition.**
 
-An AI assistant that actually remembers — and can tell you *why* it believed
-something, *what that belief changed*, and *whether it turned out to be right*.
+A continuously maintained personal cognitive environment, operated through
+conversation. It remembers, and it can tell you *why* it believed something,
+*what that belief changed*, *whether it turned out to be right* — and what it
+has been quietly keeping track of since you last spoke.
+
+As of V8.3.1 you reach all of that by simply talking. Ask "what am I working
+on?" and the mission registry answers; say "pause that" and the right mission
+pauses. You never need to know an endpoint, a table or a panel name.
 A local-first agent with persistent long-term memory — LangGraph, LangChain
 tools, ChromaDB and local embeddings — presented through a cinematic dark
 product interface.
@@ -31,6 +37,32 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V8.3.1
+
+The cognitive subsystems became **first-class participants in conversation**.
+Fifteen cognitive tools (missions, world state, predictions, attention,
+continuity, history, simulation, explanation) call the real subsystems, and the
+model — not a keyword table — decides when to use them. Missions are now
+first-class context, `"that"` and `"it"` resolve to real objects across turns,
+and the assistant distinguishes what is **recorded** from what it is merely
+**proposing**: a mission with no next step is reported as having none, never
+given an invented one.
+
+Full detail: [`docs/V8.3.1.md`](docs/V8.3.1.md) · audit:
+[`docs/V8.3.1-AUDIT.md`](docs/V8.3.1-AUDIT.md).
+
+## New in V8.3
+
+Long-running **missions** that span conversations · a **world model with
+history**, per-fact staleness and evidence-based reconciliation · **bounded,
+cancellable background cognition** that records empty cycles honestly · a
+**canonical observation log** kept separate from memory · **attention V2** with
+learned silence · a **time machine** over real recorded history · a strictly
+isolated **counterfactual sandbox**.
+
+Full detail: [`docs/V8.3.md`](docs/V8.3.md). The pre-work audit that shaped it:
+[`docs/V8.3-AUDIT.md`](docs/V8.3-AUDIT.md).
 
 ## What is real
 

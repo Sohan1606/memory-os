@@ -269,3 +269,114 @@ conversation belongs on `/api/chat`. A destructive command whose target cannot
 be resolved returns `200` with `applied: false` and
 `requires: "clarification"`: the system asks rather than deleting the wrong
 memory.
+
+---
+
+# V8.3 — Continuous Cognition
+
+All routes are same-origin under `/api`. Every one accepts an optional
+`user_id`; omitted, it resolves to the demo user.
+
+## Missions (§10–§12)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/missions` | List missions. `?open_only=true`, `?state=` |
+| `POST` | `/api/missions` | Create a mission (starts in `draft`) |
+| `GET` | `/api/missions/brief` | Resume briefing: active / blocked / waiting / gone quiet |
+| `GET` | `/api/missions/{id}` | One mission with its steps and links |
+| `GET` | `/api/missions/{id}/history` | Every transition with reason and evidence |
+| `POST` | `/api/missions/{id}/state` | Move state. `reason` is **required** |
+| `POST` | `/api/missions/{id}/steps` | Add a step (refused past 7 open steps) |
+| `POST` | `/api/missions/steps/{id}/complete` | Complete a step; recomputes progress |
+
+An unknown state returns **400**; an unknown mission returns **404**.
+
+## Observations (§17)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/observations` | Evidence log plus status/source breakdown |
+| `POST` | `/api/observations` | Record evidence (`origin` required) |
+| `GET` | `/api/observations/evidence/{kind}/{id}` | All evidence on a subject, split by epistemic status |
+| `POST` | `/api/observations/{id}/promote` | Explicitly promote to memory — `OBSERVED` only |
+
+Promoting `INFERRED`/`SIMULATED` evidence returns `{"promoted": false}` with
+the reason. No observation ever becomes a memory automatically.
+
+## World state (§7–§9)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/world/snapshot` | Facts with per-fact freshness |
+| `GET` | `/api/world/changes` | Change provenance. `?entity_id=` |
+| `GET` | `/api/world/stale` | Facts due re-confirmation (stale ≠ false) |
+| `POST` | `/api/world/reconcile` | Offer a claim; returns a verdict |
+
+Verdicts: `keep`, `supersede`, `merge`, `flag`, `downgrade`, `ignore`.
+
+## Time machine (§21)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/history/coverage` | The window history can answer for |
+| `GET` | `/api/history/world?at=` | World state at a moment |
+| `GET` | `/api/history/missions?at=` | Mission state at a moment |
+| `GET` | `/api/history/diff?start=&end=` | What changed between two moments |
+
+Outside recorded history: `{"available": false, "reason": "HISTORY NOT
+AVAILABLE — …"}`.
+
+## Background cognition (§13–§14)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/background` | State, limits and real recent cycles |
+| `POST` | `/api/background/control` | `enabled` / `paused` / `disabled` |
+| `POST` | `/api/background/run` | Run one bounded cycle |
+
+A cycle returns its true result, including `findings: []` and
+`changes_made: 0`. Rate-limited to one cycle per 60 s unless `force`.
+
+## Attention (§15–§16)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/attention/evaluate` | Returns a level on the full ladder |
+| `GET` | `/api/attention/policy` | Learned silence policy |
+| `GET` | `/api/attention/suppressions` | What was not raised, and why |
+| `POST` | `/api/attention/{id}/reaction` | Record a real reaction |
+
+Levels: `IGNORE`, `MONITOR`, `PREPARE`, `MENTION`, `ASK`, `ACT`, `DO_NOTHING`.
+
+## Simulation (§20)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/simulation` | Counterfactual over a frozen snapshot |
+| `POST` | `/api/simulation/{id}/commit` | Apply — needs `confirm` **and** `changes` |
+
+Results carry `epistemic_status: "SIMULATED"`.
+
+## Documents (§6)
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/documents` | Tracked documents plus parser capabilities |
+| `POST` | `/api/documents` | Upload (multipart `file`) |
+
+`understanding` is one of `FULL`, `PARTIAL`, `STRUCTURE ONLY`,
+`METADATA ONLY`, `NOT AVAILABLE`.
+
+## Connectors, research, maintenance, predictions
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/connectors` | Declared interfaces — all `NOT CONNECTED` |
+| `GET` | `/api/connectors/{name}/fetch` | `items: null` (no source ≠ empty source) |
+| `GET` | `/api/research` | `RESEARCH PROVIDER NOT CONFIGURED` |
+| `POST` | `/api/research` | Track a question; generates no findings |
+| `GET` | `/api/maintenance/review` | Read-only diagnosis, `changes: 0` |
+| `GET` | `/api/maintenance/remedies` | The non-destructive remedy set |
+| `GET` | `/api/predictions/due` | Elapsed evaluation windows |
+| `POST` | `/api/predictions/{id}/unresolved` | Close honestly as `UNRESOLVED` |

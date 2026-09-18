@@ -405,3 +405,137 @@ export interface ControlResult {
   memory_id?: string;
   policy_key?: string;
 }
+
+// ------------------------------------------------------------- v8.3 types
+
+export interface MissionStep {
+  id: string;
+  summary: string;
+  state: string;
+  kind: string;
+  completed_at: string | null;
+}
+
+export interface Mission {
+  id: string;
+  title: string;
+  description: string | null;
+  state: string;
+  priority: number;
+  progress: number;
+  next_step: string | null;
+  blocked_reason: string | null;
+  waiting_on: string | null;
+  steps: MissionStep[];
+  last_activity_at: string | null;
+  created_at: string;
+}
+
+export interface MissionBriefEntry {
+  id: string;
+  title: string;
+  state: string;
+  progress: number;
+  days_since_activity: number;
+  next_step?: string | null;
+  blocked_reason?: string;
+  waiting_on?: string;
+  review_reason?: string;
+}
+
+export interface MissionBrief {
+  open: number;
+  active: MissionBriefEntry[];
+  blocked: MissionBriefEntry[];
+  waiting: MissionBriefEntry[];
+  needs_review: MissionBriefEntry[];
+  summary: string;
+}
+
+export interface BackgroundCycle {
+  id: string;
+  trigger: string;
+  state: string;
+  tasks_run: string[];
+  findings: { summary?: string; reason?: string }[];
+  changes_made: number;
+  skipped_reason: string | null;
+  duration_ms: number | null;
+  started_at: string;
+}
+
+export interface BackgroundStatus {
+  state: string;
+  min_interval_s: number;
+  max_tasks_per_cycle: number;
+  recent_cycles: BackgroundCycle[];
+  total_recent: number;
+  empty_cycles: number;
+  detail: string;
+}
+
+export interface WorldFreshness {
+  freshness_class: string;
+  stale: boolean;
+  age_days: number | null;
+  horizon_days: number;
+  reason: string;
+}
+
+export interface WorldFact {
+  id: string;
+  kind: string;
+  label: string;
+  state: string;
+  confidence: number;
+  freshness: WorldFreshness;
+}
+
+export interface WorldSnapshot {
+  entities: WorldFact[];
+  count: number;
+  by_kind: Record<string, number>;
+  stale_count: number;
+  detail: string;
+}
+
+export interface SilencePolicy {
+  learned: boolean;
+  accepted: number;
+  rejected: number;
+  total: number;
+  rejection_ratio?: number;
+  interruption_cost: number;
+  verdict: string;
+  detail: string;
+}
+
+export interface Suppression {
+  id: string;
+  topic: string;
+  decision: string;
+  suppressed_because: string | null;
+  created_at: string;
+}
+
+export interface ObservationStats {
+  total: number;
+  by_status: Record<string, number>;
+  by_source: Record<string, number>;
+  detail: string;
+}
+
+export interface Connector {
+  id: string;
+  name: string;
+  state: string;
+  capabilities: string[];
+  detail: string | null;
+}
+
+export interface ConnectorStatus {
+  connectors: Connector[];
+  total: number;
+  connected: number;
+  detail: string;
+}

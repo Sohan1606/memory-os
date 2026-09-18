@@ -20,6 +20,7 @@ keeps panels as views over the same cognitive state rather than a parallel store
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -27,7 +28,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 # Hard caps. Latency and prompt size are correctness concerns, not nice-to-haves.
+MAX_FOCUS = 2             # v8.3.1.2: the object a follow-up refers to
 MAX_MEMORIES = 6
+MAX_MISSIONS = 4          # v8.3.1 §4: missions are first-class context
 MAX_WORLD = 6
 MAX_GOALS = 4
 MAX_COMMITMENTS = 4
@@ -37,9 +40,29 @@ MAX_EPISODIC = 6
 MAX_PREFERENCES = 4
 MAX_TOTAL_CHARS = 4000
 
+# Which lifecycle actions are genuinely possible from each recorded mission
+# state. Derived from MissionRegistry's own transition rules so the prompt can
+# never advertise a transition the registry would refuse. Terminal states map
+# to nothing: a completed mission is not reopened.
+_LIFECYCLE_ACTIONS: dict[str, tuple[str, ...]] = {
+    "draft": ("pause_mission", "complete_mission", "abandon_mission"),
+    "active": ("pause_mission", "complete_mission", "abandon_mission"),
+    "waiting": ("pause_mission", "complete_mission", "abandon_mission"),
+    "blocked": ("pause_mission", "complete_mission", "abandon_mission"),
+    "paused": ("resume_mission", "complete_mission", "abandon_mission"),
+    "completed": (),
+    "failed": (),
+    "abandoned": (),
+}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _tokens(text: str) -> set[str]:
+    """Lowercase word set used for lexical overlap scoring."""
+    return {w for w in re.split(r"[^a-z0-9]+", (text or "").lower()) if w}
 
 
 def _age_days(iso: Any) -> float | None:
@@ -99,6 +122,16 @@ class ContextBundle:
             return "No relevant prior context was found for this message."
 
         titles = {
+            # Focus first. A short follow-up like "Resume it." is an ACTION on
+            # an already-identified object. If the model cannot see the focused
+            # object's id and state, it has no choice but to spend tool calls
+            # rediscovering them (get_mission, get_world_state) before it can
+            # act. Naming the object up front is what makes direct action
+            # selection possible.
+            "focus": "IN FOCUS RIGHT NOW (what 'it'/'that' refers to)",
+            # Missions next: a tracked objective is the strongest available
+            # context, and it outranks a semantically similar memory (§4).
+            "mission": "Active missions (tracked objectives, not memories)",
             "memory": "Relevant long-term memories",
             "episodic": "Recent conversation",
             "goal": "Active goals",
@@ -168,6 +201,14 @@ class ContextBuilder:
         sections: dict[str, list[ContextItem]] = {}
 
         for key, fn in (
+            # v8.3.1.2: the focused object leads. It is what pronouns in a
+            # follow-up resolve to, and stating it plainly removes the need for
+            # a read-before-write tool call.
+            ("focus", lambda: self._focus(user_id, thread_id)),
+            # v8.3.1 §4: missions lead. An active objective is the strongest
+            # context there is for "what am I doing", and it must be present
+            # whether or not any memory happens to be semantically similar.
+            ("mission", lambda: self._missions(user_id, message)),
             ("memory", lambda: self._memories(user_id, retrieved)),
             ("episodic", lambda: self._episodic(user_id, thread_id)),
             ("goal", lambda: self._world_of_kind(user_id, "goal", MAX_GOALS)),
@@ -265,6 +306,154 @@ class ContextBuilder:
                 relevance=round(max(0.2, 0.9 - 0.12 * pos), 4),
                 confidence=None,
                 reason=f"Turn {pos + 1} back in this thread."))
+        return items
+
+    def _focus(self, user_id: str,
+               thread_id: str | None) -> list[ContextItem]:
+        """
+        The object the conversation is currently about (§8 object permanence).
+
+        This exists so that a follow-up such as "Resume it." can be acted on
+        directly. Without it the model knows a paused mission exists somewhere
+        but not that *this* is the one under discussion, so it burns tool calls
+        on get_mission / get_world_state to rediscover an identity the system
+        already holds.
+
+        For a focused mission we state the three facts an action decision
+        actually needs — id, current state, and which lifecycle transitions are
+        valid from that state — and nothing else. The valid-action list is
+        derived from the real recorded state, so it can never invite an
+        impossible transition (a completed mission offers none).
+        """
+        tracker = getattr(self.cog, "focus", None)
+        if tracker is None:
+            return []
+        try:
+            entries = tracker.current(user_id, session_id=thread_id or "default")
+        except Exception as exc:
+            log.info("Focus unavailable for context: %s", exc)
+            return []
+        if not entries:
+            return []
+
+        items: list[ContextItem] = []
+        for entry in entries[:MAX_FOCUS]:
+            kind = entry.get("subject_kind")
+            subject_id = entry.get("subject_id") or ""
+            label = entry.get("label") or subject_id
+
+            if kind == "mission":
+                mission = None
+                try:
+                    mission = self.cog.missions.get(user_id, subject_id)
+                except Exception as exc:
+                    log.info("Focused mission %s unreadable: %s", subject_id, exc)
+                if mission is None:
+                    # Focus outlived the object. Say so rather than implying
+                    # something is in focus that cannot be acted on.
+                    continue
+                state = mission["state"]
+                actions = _LIFECYCLE_ACTIONS.get(state, ())
+                if actions:
+                    advice = ("valid lifecycle actions right now: "
+                              + ", ".join(actions))
+                else:
+                    advice = (f"state '{state}' is terminal; no lifecycle "
+                              f"action is valid and it must not be reopened")
+                content = (
+                    f"FOCUSED MISSION (this is what 'it', 'that' and 'this "
+                    f"mission' refer to): '{mission['title']}' "
+                    f"[state={state}] id={mission['id']}; {advice}. "
+                    f"Act on it directly with the matching lifecycle tool and "
+                    f"omit mission_id — do NOT call get_mission or "
+                    f"get_world_state first to look it up.")
+                items.append(ContextItem(
+                    kind="focus", id=mission["id"], content=content,
+                    source="conversational focus", relevance=1.0,
+                    confidence=1.0,
+                    reason=("The user opened or last acted on this mission, so "
+                            "an unqualified reference resolves to it."),
+                    extra={"subject_kind": "mission", "state": state,
+                           "valid_actions": list(actions)}))
+            else:
+                items.append(ContextItem(
+                    kind="focus", id=subject_id,
+                    content=(f"FOCUSED {str(kind).upper()}: '{label}' "
+                             f"id={subject_id}. An unqualified reference to "
+                             f"'it' or 'that' means this."),
+                    source="conversational focus", relevance=0.95,
+                    confidence=1.0,
+                    reason="Currently in conversational focus.",
+                    extra={"subject_kind": kind}))
+        return items
+
+    def _missions(self, user_id: str, message: str) -> list[ContextItem]:
+        """
+        Active missions as first-class context (§4).
+
+        Ranked by relevance to the message, then priority, but the top mission
+        is always carried even on an unrelated turn: the assistant should know
+        what the user is in the middle of.
+
+        `next_step` is rendered with its truth status attached so the prompt
+        itself distinguishes a recorded step from the absence of one (§5).
+        """
+        registry = getattr(self.cog, "missions", None)
+        if registry is None:
+            return []
+        missions = registry.list(user_id, open_only=True, limit=20)
+        if not missions:
+            return []
+
+        words = {w for w in _tokens(message) if len(w) > 3}
+
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for mission in missions:
+            haystack = _tokens(" ".join(filter(None, [
+                mission["title"], mission.get("description") or "",
+                mission.get("scope") or ""])))
+            overlap = len(words & haystack) / (len(words) or 1)
+            # Priority and liveness matter even with zero lexical overlap.
+            score = min(1.0, 0.35 * overlap * 3
+                        + 0.4 * float(mission.get("priority") or 0.5)
+                        + (0.15 if mission["state"] == "active" else 0.0)
+                        + (0.1 if mission["state"] in ("blocked", "waiting")
+                           else 0.0))
+            scored.append((score, mission))
+        scored.sort(key=lambda p: p[0], reverse=True)
+
+        items: list[ContextItem] = []
+        for score, mission in scored[:MAX_MISSIONS]:
+            steps = mission.get("steps", [])
+            pending = [s for s in steps
+                       if s["state"] in ("pending", "in_progress")]
+            recorded_next = mission.get("next_step") or (
+                pending[0]["summary"] if pending else None)
+            next_text = (f"next step (RECORDED): {recorded_next}"
+                         if recorded_next else "NO NEXT STEP RECORDED")
+
+            parts = [f"MISSION '{mission['title']}' [{mission['state']}]",
+                     f"progress {int(float(mission.get('progress') or 0) * 100)}%",
+                     next_text]
+            if mission.get("blocked_reason"):
+                parts.append(f"blocked: {mission['blocked_reason']}")
+            if mission.get("waiting_on"):
+                parts.append(f"waiting on: {mission['waiting_on']}")
+
+            items.append(ContextItem(
+                kind="mission", id=mission["id"],
+                content="; ".join(parts),
+                source=str(mission.get("source") or "conversation"),
+                relevance=round(score, 4),
+                confidence=float(mission.get("confidence") or 0.6),
+                reason=(f"Open mission in state '{mission['state']}'. "
+                        f"Missions are tracked objectives, not memories."),
+                extra={"state": mission["state"],
+                       "progress": mission.get("progress"),
+                       "next_step_status": ("RECORDED" if recorded_next
+                                            else "NO_NEXT_STEP_RECORDED"),
+                       "blocked_reason": mission.get("blocked_reason"),
+                       "waiting_on": mission.get("waiting_on")}))
         return items
 
     def _world_of_kind(self, user_id: str, kind: str, cap: int) -> list[ContextItem]:

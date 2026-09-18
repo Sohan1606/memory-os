@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 STATUSES = ("open", "correct", "incorrect", "expired", "cancelled")
@@ -29,14 +29,29 @@ class PredictionEngine:
     def create(self, user_id: str, statement: str, confidence: float, *,
                evidence: list[str] | None = None, horizon: str | None = None,
                subject_id: str | None = None,
+               evaluation_window_days: float | None = None,
                correlation_id: str | None = None) -> dict[str, Any]:
+        """
+        Record a prediction.
+
+        `evaluation_window_days` (v8.3 §19) declares when this should be
+        checked. When the window passes with no evidence the prediction becomes
+        UNRESOLVED - it is never scored correct or incorrect by assumption.
+        """
         confidence = max(0.01, min(0.99, float(confidence)))
         pid = f"p_{uuid.uuid4().hex[:12]}"
+        expected_at = None
+        if evaluation_window_days is not None:
+            expected_at = (datetime.now(timezone.utc)
+                           + timedelta(days=float(evaluation_window_days))
+                           ).isoformat(timespec="seconds")
         self.db.execute(
             "INSERT INTO predictions (id,user_id,subject_id,statement,confidence,"
-            "evidence,horizon,status,created_at) VALUES (?,?,?,?,?,?,?, 'open', ?)",
+            "evidence,horizon,status,created_at,evaluation_window_days,"
+            "expected_evaluation_at) VALUES (?,?,?,?,?,?,?, 'open', ?,?,?)",
             (pid, user_id, subject_id, statement, confidence,
-             json.dumps(evidence or []), horizon, _now()))
+             json.dumps(evidence or []), horizon, _now(),
+             evaluation_window_days, expected_at))
         self.bus.emit(user_id, "prediction.created", statement,
                       subject_kind="prediction", subject_id=pid,
                       correlation_id=correlation_id,
@@ -228,6 +243,49 @@ class PredictionEngine:
             if item:
                 out.append(item)
         return out
+
+    # ------------------------------------------------- v8.3 §19 windows
+    def due_for_evaluation(self, user_id: str) -> list[dict[str, Any]]:
+        """
+        Open predictions whose declared evaluation window has passed.
+
+        These are *candidates for resolution*, not resolutions. Silence is not
+        evidence: the caller must supply a real observation, or the prediction
+        stays UNRESOLVED.
+        """
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        rows = self.db.query(
+            "SELECT * FROM predictions WHERE user_id=? AND status='open'"
+            " AND expected_evaluation_at IS NOT NULL"
+            " AND datetime(expected_evaluation_at) <= datetime(?)"
+            " ORDER BY expected_evaluation_at", (user_id, now))
+        return [self.get(r["id"]) for r in rows]  # type: ignore[misc]
+
+    def mark_unresolved(self, user_id: str, prediction_id: str, *,
+                        reason: str = "No evidence was observed within the "
+                                      "evaluation window.",
+                        correlation_id: str | None = None) -> dict[str, Any] | None:
+        """
+        Close a prediction as UNRESOLVED. This is a real, honest outcome and is
+        deliberately excluded from accuracy scoring - guessing either way would
+        corrupt calibration.
+        """
+        row = self.db.query_one(
+            "SELECT * FROM predictions WHERE id=? AND user_id=?",
+            (prediction_id, user_id))
+        if row is None or row["status"] != "open":
+            return None
+        self.db.execute(
+            "UPDATE predictions SET status='unresolved', outcome=?,"
+            " evaluated_at=? WHERE id=?",
+            (f"UNRESOLVED — {reason}",
+             datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             prediction_id))
+        self.bus.emit(user_id, "outcome.unresolved", row["statement"],
+                      subject_kind="prediction", subject_id=prediction_id,
+                      correlation_id=correlation_id,
+                      payload={"reason": reason})
+        return self.get(prediction_id)
 
     def accuracy(self, user_id: str) -> dict[str, Any]:
         """

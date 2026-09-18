@@ -23,6 +23,13 @@ from .schemas.api import (AutonomyRequest, ChatRequest, ChatResponse,
                           NeedEvaluationRequest, OutcomeRequest,
                           PredictionObservationRequest, PredictionResolveRequest,
                           SandboxRequest, SearchRequest)
+from .schemas.api import (AttentionReactionRequest, AttentionRequest,
+                          BackgroundControlRequest, BackgroundRunRequest,
+                          MissionCreateRequest, MissionStateRequest,
+                          MissionStepRequest, ObservationRequest,
+                          OutcomeObservationRequest, ResearchRequest,
+                          SimulationCommitRequest, SimulationRequest,
+                          WorldReconcileRequest)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -931,3 +938,370 @@ def cognitive_commands():
         "note": ("Commands only fire on unambiguous phrasing. If the target "
                  "cannot be resolved the system asks rather than guessing."),
     }
+
+
+# ==========================================================================
+# V8.3 — CONTINUOUS COGNITION
+# ==========================================================================
+
+# ------------------------------------------------------------------ missions
+@app.get("/api/missions")
+def list_missions(user_id: str | None = None, state: str | None = None,
+                  open_only: bool = False, runtime: Runtime = Depends(rt)):
+    """Long-running objectives that span conversations (§10)."""
+    user = uid(runtime, user_id)
+    return {"missions": runtime.cognition.missions.list(
+        user, state=state, open_only=open_only)}
+
+
+@app.post("/api/missions")
+def create_mission(req: MissionCreateRequest, runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    mission = runtime.cognition.missions.create(
+        user, req.title, description=req.description, scope=req.scope,
+        constraints=req.constraints, success_criteria=req.success_criteria,
+        priority=req.priority, evidence=req.evidence)
+    return {"mission": mission}
+
+
+@app.get("/api/missions/brief")
+def mission_brief(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """What a returning user needs to know, including what has gone quiet."""
+    user = uid(runtime, user_id)
+    return {"brief": runtime.cognition.missions.resume_brief(user)}
+
+
+@app.get("/api/missions/{mission_id}")
+def get_mission(mission_id: str, user_id: str | None = None,
+                runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    mission = runtime.cognition.missions.get(user, mission_id)
+    if mission is None:
+        raise HTTPException(404, "No such mission.")
+    return {"mission": mission}
+
+
+@app.get("/api/missions/{mission_id}/history")
+def mission_history(mission_id: str, user_id: str | None = None,
+                    runtime: Runtime = Depends(rt)):
+    """Every state change with its reason and evidence."""
+    user = uid(runtime, user_id)
+    if runtime.cognition.missions.get(user, mission_id) is None:
+        raise HTTPException(404, "No such mission.")
+    return {"history": runtime.cognition.missions.history(user, mission_id)}
+
+
+@app.post("/api/missions/{mission_id}/state")
+def set_mission_state(mission_id: str, req: MissionStateRequest,
+                      runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    mission = runtime.cognition.missions.set_state(
+        user, mission_id, req.state, reason=req.reason, evidence=req.evidence,
+        blocked_reason=req.blocked_reason, waiting_on=req.waiting_on)
+    if mission is None:
+        raise HTTPException(404, "No such mission.")
+    return {"mission": mission}
+
+
+@app.post("/api/missions/{mission_id}/steps")
+def add_mission_step(mission_id: str, req: MissionStepRequest,
+                     runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    try:
+        return runtime.cognition.missions.add_step(
+            user, mission_id, req.summary, kind=req.kind,
+            depends_on=req.depends_on)
+    except KeyError:
+        raise HTTPException(404, "No such mission.")
+
+
+@app.post("/api/missions/steps/{step_id}/complete")
+def complete_mission_step(step_id: str, user_id: str | None = None,
+                          runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    mission = runtime.cognition.missions.complete_step(user, step_id)
+    if mission is None:
+        raise HTTPException(404, "No such mission step.")
+    return {"mission": mission}
+
+
+# -------------------------------------------------------------- observations
+@app.get("/api/observations")
+def list_observations(user_id: str | None = None, source: str | None = None,
+                      epistemic_status: str | None = None,
+                      runtime: Runtime = Depends(rt)):
+    """Evidence the system actually recorded. Not the same as memory (§17)."""
+    user = uid(runtime, user_id)
+    return {
+        "observations": runtime.cognition.observations.list(
+            user, source=source, epistemic_status=epistemic_status),
+        "stats": runtime.cognition.observations.stats(user),
+    }
+
+
+@app.post("/api/observations")
+def record_observation(req: ObservationRequest, runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    return {"observation": runtime.cognition.observations.record(
+        user, req.content, source=req.source, origin=req.origin,
+        epistemic_status=req.epistemic_status, confidence=req.confidence,
+        subject_kind=req.subject_kind, subject_id=req.subject_id)}
+
+
+@app.get("/api/observations/evidence/{subject_kind}/{subject_id}")
+def observation_evidence(subject_kind: str, subject_id: str,
+                         user_id: str | None = None,
+                         runtime: Runtime = Depends(rt)):
+    """All evidence bearing on one subject, split by epistemic status."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.observations.evidence_for(
+        user, subject_kind, subject_id)
+
+
+@app.post("/api/observations/{observation_id}/promote")
+def promote_observation(observation_id: str, user_id: str | None = None,
+                        runtime: Runtime = Depends(rt)):
+    """Explicitly turn evidence into a durable memory. Never automatic."""
+    user = uid(runtime, user_id)
+    try:
+        return runtime.cognition.observations.promote(
+            user, observation_id, runtime.memory)
+    except KeyError:
+        raise HTTPException(404, "No such observation.")
+
+
+# ---------------------------------------------------------------- world v2
+@app.get("/api/world/snapshot")
+def world_snapshot(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Current world state with per-fact freshness (§9)."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.world_v2.snapshot(user)
+
+
+@app.get("/api/world/changes")
+def world_changes(user_id: str | None = None, entity_id: str | None = None,
+                  runtime: Runtime = Depends(rt)):
+    """Change provenance — the history V8.2 declared but never wrote."""
+    user = uid(runtime, user_id)
+    return {"changes": runtime.cognition.world_v2.changes(
+        user, entity_id=entity_id)}
+
+
+@app.get("/api/world/stale")
+def world_stale(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Facts due for re-confirmation. Stale does not mean false."""
+    user = uid(runtime, user_id)
+    return {"stale": runtime.cognition.world_v2.stale_facts(user),
+            "note": ("A stale fact keeps its value; it is flagged for "
+                     "re-checking, not treated as false.")}
+
+
+@app.post("/api/world/reconcile")
+def world_reconcile(req: WorldReconcileRequest, runtime: Runtime = Depends(rt)):
+    """Offer a claim; get keep / supersede / merge / flag / downgrade (§8)."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.world_v2.reconcile(
+        user, req.kind, req.label, state=req.state, detail=req.detail,
+        confidence=req.confidence, explicit_correction=req.explicit_correction,
+        evidence=req.evidence)
+
+
+# ------------------------------------------------------------ time machine
+@app.get("/api/history/coverage")
+def history_coverage(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """The window history can actually answer for."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.timemachine.coverage(user)
+
+
+@app.get("/api/history/world")
+def history_world(at: str, user_id: str | None = None,
+                  runtime: Runtime = Depends(rt)):
+    """Reconstruct world state at a past moment, from real records only."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.timemachine.world_at(user, at)
+
+
+@app.get("/api/history/missions")
+def history_missions(at: str, user_id: str | None = None,
+                     runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return runtime.cognition.timemachine.missions_at(user, at)
+
+
+@app.get("/api/history/diff")
+def history_diff(start: str, end: str, user_id: str | None = None,
+                 runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return runtime.cognition.timemachine.diff(user, start, end)
+
+
+# ------------------------------------------------------ background cognition
+@app.get("/api/background")
+def background_status(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Real cycle records, including the ones that found nothing (§14)."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.background.status(user)
+
+
+@app.post("/api/background/control")
+def background_control(req: BackgroundControlRequest,
+                       runtime: Runtime = Depends(rt)):
+    """Enable / pause / disable background cognition."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.background.set_state(
+        user, req.state, reason=req.reason)
+
+
+@app.post("/api/background/run")
+def background_run(req: BackgroundRunRequest, runtime: Runtime = Depends(rt)):
+    """
+    Run one bounded upkeep cycle. Rate-limited, deadline-bounded and
+    non-destructive; a cycle that finds nothing says so.
+    """
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.background.run_cycle(
+        user, trigger=req.trigger, force=req.force, deadline_s=req.deadline_s)
+
+
+# ----------------------------------------------------------------- attention
+@app.post("/api/attention/evaluate")
+def attention_evaluate(req: AttentionRequest, runtime: Runtime = Depends(rt)):
+    """IGNORE / MONITOR / PREPARE / MENTION / ASK / ACT — or DO_NOTHING (§15)."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.attention_v2.evaluate(
+        user, req.topic, importance=req.importance, urgency=req.urgency,
+        confidence=req.confidence, relevance=req.relevance,
+        mission_id=req.mission_id)
+
+
+@app.get("/api/attention/policy")
+def attention_policy(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Learned silence policy, or INSUFFICIENT EVIDENCE (§16)."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.attention_v2.silence_policy(user)
+
+
+@app.get("/api/attention/suppressions")
+def attention_suppressions(user_id: str | None = None,
+                           runtime: Runtime = Depends(rt)):
+    """Everything the system chose not to raise, and why."""
+    user = uid(runtime, user_id)
+    return {"suppressions": runtime.cognition.attention_v2.suppressions(user)}
+
+
+@app.post("/api/attention/{intervention_id}/reaction")
+def attention_reaction(intervention_id: str, req: AttentionReactionRequest,
+                       runtime: Runtime = Depends(rt)):
+    """Record a real reaction. Silence is never treated as acceptance."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.attention_v2.record_reaction(
+        user, intervention_id, req.accepted, detail=req.detail)
+
+
+# ---------------------------------------------------------------- simulation
+@app.post("/api/simulation")
+def run_simulation(req: SimulationRequest, runtime: Runtime = Depends(rt)):
+    """Counterfactual over a frozen snapshot. Tagged SIMULATED (§20)."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.simulation.simulate(
+        user, req.question, assumptions=req.assumptions)
+
+
+@app.post("/api/simulation/{simulation_id}/commit")
+def commit_simulation(simulation_id: str, req: SimulationCommitRequest,
+                      runtime: Runtime = Depends(rt)):
+    """Requires explicit confirmation AND concrete changes."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.simulation.commit(
+        user, simulation_id, confirm=req.confirm, changes=req.changes)
+
+
+# ----------------------------------------------------------------- documents
+@app.get("/api/documents")
+def list_documents(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"documents": runtime.cognition.documents.list(user),
+            "capabilities": runtime.cognition.documents.capabilities()}
+
+
+@app.post("/api/documents")
+async def upload_document(file: UploadFile = File(...),
+                          user_id: str | None = None,
+                          runtime: Runtime = Depends(rt)):
+    """
+    Ingest a document. Formats without a parser are tracked as METADATA ONLY —
+    their contents are never inferred.
+    """
+    user = uid(runtime, user_id)
+    data = await file.read()
+    document = runtime.cognition.documents.ingest(
+        user, file.filename or "upload", data,
+        media_type=file.content_type)
+    document.pop("text", None)
+    return {"document": document}
+
+
+# -------------------------------------------------- connectors and research
+@app.get("/api/connectors")
+def list_connectors(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Declared interfaces. Nothing is connected in this build (§26)."""
+    user = uid(runtime, user_id)
+    runtime.cognition.connectors.declare_defaults(user)
+    return runtime.cognition.connectors.status(user)
+
+
+@app.get("/api/connectors/{name}/fetch")
+def fetch_connector(name: str, user_id: str | None = None,
+                    runtime: Runtime = Depends(rt)):
+    """Always NOT CONNECTED here — distinct from 'the source was empty'."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.connectors.fetch(user, name)
+
+
+@app.get("/api/research")
+def research_status(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"status": runtime.cognition.research.status(user),
+            "sessions": runtime.cognition.research.list(user)}
+
+
+@app.post("/api/research")
+def start_research(req: ResearchRequest, runtime: Runtime = Depends(rt)):
+    """Tracks the question; produces no findings without a provider (§27)."""
+    user = uid(runtime, req.user_id)
+    return {"session": runtime.cognition.research.start(user, req.question)}
+
+
+# -------------------------------------------------------------- maintenance
+@app.get("/api/maintenance/review")
+def maintenance_review(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Read-only memory diagnosis. Applies nothing (§23)."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.maintenance.review(user)
+
+
+@app.get("/api/maintenance/remedies")
+def maintenance_remedies(runtime: Runtime = Depends(rt)):
+    return runtime.cognition.maintenance.remedies()
+
+
+# ------------------------------------------------------------ predictions v2
+@app.get("/api/predictions/due")
+def predictions_due(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    """Predictions whose evaluation window passed. Evidence still required."""
+    user = uid(runtime, user_id)
+    return {"due": runtime.cognition.predictions.due_for_evaluation(user),
+            "note": ("These need a real observation. Silence resolves nothing; "
+                     "without evidence they become UNRESOLVED.")}
+
+
+@app.post("/api/predictions/{prediction_id}/unresolved")
+def prediction_unresolved(prediction_id: str, user_id: str | None = None,
+                          runtime: Runtime = Depends(rt)):
+    """Close a prediction honestly as UNRESOLVED (§19)."""
+    user = uid(runtime, user_id)
+    result = runtime.cognition.predictions.mark_unresolved(user, prediction_id)
+    if result is None:
+        raise HTTPException(404, "No such open prediction.")
+    return {"prediction": result}

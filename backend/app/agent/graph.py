@@ -31,17 +31,78 @@ from .execution import (DEGRADED, FINAL_RESPONSE, LIMIT_REACHED, MODEL_CALL,
                         MODEL_REVISION, TOOL_DECISION, Cancellation,
                         ExecutionTrace, run_tool_safely)
 
-SYSTEM_PROMPT = """You are MEMORY//OS, an assistant with persistent long-term memory.
+SYSTEM_PROMPT = """You are MEMORY//OS, an assistant with persistent long-term
+memory and a set of cognitive subsystems you reach through tools.
 
-You have memory tools. Use them deliberately:
-- Call search_memory before answering questions about the user, their projects,
-  preferences, goals or history.
+MEMORY TOOLS
+- Call search_memory before answering questions about the user, their
+  preferences or history.
 - Call save_memory when the user states a durable fact about themselves.
 - Call update_memory when new information contradicts a stored memory.
 - Do not store transient questions or small talk.
 
-Honour retrieved communication preferences (for example: be concise).
-Never invent memories you did not retrieve."""
+COGNITIVE TOOLS — these hold DIFFERENT kinds of object, not memories:
+- MISSION: a tracked objective spanning conversations, with state, steps and
+  blockers. Use list_missions / get_mission to read.
+  To change a mission's state, prefer the dedicated action tools:
+  pause_mission (active/waiting/blocked → paused), resume_mission (paused →
+  active), complete_mission, abandon_mission. Use update_mission_state only
+  for 'blocked' or 'waiting', which the action tools do not cover.
+  Call an action tool with NO mission_id when the user says "pause it",
+  "resume it" or "that mission" — the tool resolves the mission that is
+  already under discussion. Never ask the user for an id you do not need, and
+  never make one up.
+- WORLD STATE: current projects, people, risks, constraints. Use
+  get_world_state for "what projects am I working on" — do NOT answer that
+  from memory search.
+- CURRENT FOCUS: get_current_focus for "what am I working on", "what's
+  pending", "where did we leave off".
+- PREDICTIONS, ATTENTION, HISTORY, SIMULATION, EXPLAIN as described per tool.
+
+ACTING ON THE FOCUSED OBJECT:
+A "FOCUSED MISSION" line in the context gives you the mission's title, id and
+current state. That IS the answer to "which mission does 'it' mean".
+- When it is present and the user asks for a lifecycle change, call the
+  matching action tool IMMEDIATELY with NO arguments. Never call get_mission
+  or get_world_state first — you already have the id, and world facts are
+  irrelevant to a pause/resume/complete/abandon.
+- paused mission: "resume it" / "continue it" / "start it again" /
+  "carry on with it" -> resume_mission
+  active mission: "pause it" / "put it on hold" -> pause_mission
+  explicit only: "complete it" -> complete_mission;
+  "abandon it" / "drop it" -> abandon_mission
+- complete_mission_step finishes ONE STEP, never the mission itself.
+- If the focused mission's state is terminal, say it is already finished.
+
+A memory, a goal, a mission, a commitment and a project are distinct objects.
+Query the subsystem that actually holds the thing being asked about.
+
+TRUTHFULNESS — these rules override helpfulness:
+- Never invent a mission, step, blocker, project, change or event. If a tool
+  reports NO_MISSIONS_RECORDED, NO_NEXT_STEP_RECORDED, NO_BLOCKERS_RECORDED,
+  NO_CHANGES_RECORDED or HISTORY_NOT_AVAILABLE, say exactly that in plain
+  words. Absence of a record is useful information, not a gap to fill.
+- When a mission has no recorded next step you may SUGGEST one, but you must
+  label it clearly as your proposal, for example: "Nothing is recorded as the
+  next step. I'd suggest X — that's a proposal, not something on record."
+- Keep these apart and make the difference audible: what is RECORDED or
+  OBSERVED, what is INFERRED, what is PREDICTED, what is SIMULATED, what is
+  PROPOSED by you, and what is UNKNOWN. Never restate a prediction, a
+  simulation or your own suggestion as established fact.
+- Only create a mission when the user clearly asks to track or start
+  something. A question such as "what should I do about X" is NOT a request to
+  create a mission.
+- If a reference like "that" or "it" cannot be resolved to one specific
+  object, ask which one is meant. Never pick between candidates by guessing.
+- Never claim a state change unless a tool result confirmed it. After an
+  action tool returns, answer from the state in that result: "UPDATED" means
+  it changed, "NO_CHANGE" means it was already in that state, and
+  "TERMINAL_STATE" means it is finished and was not reopened. If a tool
+  reports the state, never say the state is unknown.
+- Explain using the evidence the tools return. Never describe your internal
+  reasoning process; cite what is on record.
+
+Honour retrieved communication preferences (for example: be concise)."""
 
 
 def append_activity(left: list[dict[str, Any]] | None,
@@ -70,6 +131,7 @@ class MemoryAgent:
     def __init__(self, service: MemoryService, provider, checkpointer=None,
                  langmem=None, llm_lock=None, *, recorder=None,
                  context_builder=None, router=None, policy_engine=None,
+                 cognition=None,
                  max_tool_depth: int = 4, turn_timeout_s: float | None = None) -> None:
         self.service = service
         self.provider = provider
@@ -86,6 +148,9 @@ class MemoryAgent:
         self.context_builder = context_builder  # ContextBuilder
         self.router = router                # CapabilityRouter
         self.policy_engine = policy_engine  # CognitivePolicyEngine
+        # v8.3.1: the orchestrator, so the model can reach the cognitive
+        # subsystems as tools. Optional: without it the agent is memory-only.
+        self.cognition = cognition
         self.max_tool_depth = max_tool_depth
         self.turn_timeout_s = turn_timeout_s
         self._traces: dict[str, ExecutionTrace] = {}
@@ -106,13 +171,38 @@ class MemoryAgent:
         return trace.add(stage, detail, **payload)
 
     # ------------------------------------------------------------------ build
-    def _tools_for(self, user_id: str, thread_id: str, sink: list[dict[str, Any]]):
+    def _tools_for(self, user_id: str, thread_id: str, sink: list[dict[str, Any]],
+                   correlation_id: str | None = None):
+        """
+        The tools the model may call this turn.
+
+        v8.3.1: memory tools plus the cognitive tools (missions, world,
+        continuity, predictions, attention, history, simulation, explanation).
+        Both sets are built here so BOTH the model path and the deterministic
+        planner see exactly the same toolset, and every call is traced by the
+        one tools_node.
+
+        The cognitive tools need the orchestrator. When the agent is built
+        standalone (as several unit tests do) there is none, and the memory
+        tools alone remain a valid toolset.
+        """
         from .tools import build_memory_tools
 
         def on_event(kind: str, payload: dict[str, Any]) -> None:
             sink.append({"type": kind, **payload})
 
-        return build_memory_tools(self.service, user_id, thread_id, on_event)
+        tools = build_memory_tools(self.service, user_id, thread_id, on_event)
+
+        cognition = getattr(self, "cognition", None)
+        if cognition is not None:
+            from .cognitive_tools import build_cognitive_tools
+            try:
+                tools = tools + build_cognitive_tools(
+                    cognition, user_id, thread_id=thread_id,
+                    correlation_id=correlation_id, on_event=on_event)
+            except Exception as exc:  # never lose memory tools over this
+                log.warning("Cognitive tools unavailable this turn: %s", exc)
+        return tools
 
     def build(self):
         if self._graph is not None:
@@ -175,7 +265,9 @@ class MemoryAgent:
             run_id = state.get("run_id", "")
             trace = agent_self._trace(run_id)
             sink: list[dict[str, Any]] = []
-            tools = agent_self._tools_for(user_id, thread_id, sink)
+            tools = agent_self._tools_for(
+                user_id, thread_id, sink,
+                trace.correlation_id if trace is not None else None)
             model = provider.chat_model()
 
             # --- v8.2 bounded loop guards, checked before every model call ---
@@ -278,8 +370,9 @@ class MemoryAgent:
             run_id = state.get("run_id", "")
             trace = agent_self._trace(run_id)
             sink: list[dict[str, Any]] = []
-            by_name = {t.name: t for t in
-                       agent_self._tools_for(user_id, thread_id, sink)}
+            by_name = {t.name: t for t in agent_self._tools_for(
+                user_id, thread_id, sink,
+                trace.correlation_id if trace is not None else None)}
 
             last = state["messages"][-1]
             messages: list[BaseMessage] = []
@@ -399,8 +492,114 @@ class MemoryAgent:
             r"\bwhat do you remember\b|\bmy (projects?|preferences?|goals?|style)\b", low))
         states_fact = policy.evaluate(text).is_durable
 
+        # v8.3.1 §16: the fallback understands the cognitive object APIs too,
+        # so DEMO mode answers mission questions from the real registry instead
+        # of pretending they are memories. This is deterministic pattern
+        # matching by design — it exists only on the fallback path, never on the
+        # real model path, and the reply is still labelled DETERMINISTIC.
+        asks_missions = bool(re.search(
+            r"\b(mission|missions)\b|\bwhat am i (working on|doing)\b|"
+            r"\bwhat'?s pending\b|\bwhere did we leave off\b", low))
+        asks_next_step = bool(re.search(
+            r"\bnext step\b|\bwhat'?s next\b|\bwhat should i do next\b", low))
+
+        # v8.3.1.1: the fallback also understands the mission action tools, so
+        # DEMO mode can pause/resume through the canonical registry instead of
+        # answering a state change with a memory search. Deterministic pattern
+        # matching again lives ONLY here, never on the real model path.
+        # Explicit mission creation. Narrow on purpose: an imperative "create a
+        # mission to X" only. A question is never treated as a request (§6).
+        create_match = re.match(
+            r"(?:please\s+)?(?:create|start|track)\s+(?:a\s+)?(?:new\s+)?"
+            r"mission\s+(?:to|for|called|named)\s+(.+)", low)
+
+        mission_action = None
+        if re.search(r"\bresume\b|\bunpause\b|\bcontinue\b", low):
+            mission_action = "resume_mission"
+        elif re.search(r"\bpause\b|\bon hold\b", low):
+            mission_action = "pause_mission"
+        elif re.search(r"\b(complete|completed|finished|done)\b", low):
+            mission_action = "complete_mission"
+        elif re.search(r"\babandon\b|\bgive up on\b", low):
+            mission_action = "abandon_mission"
+
         reply: str
-        if asks_recall:
+        if create_match and "create_mission" in by_name:
+            # Use the original-case text for the title, not the lowered copy.
+            title = text[-len(create_match.group(1)):].strip().rstrip(".")
+            raw = by_name["create_mission"].invoke({"title": title})
+            activity.append({"type": "TOOL_DECISION", "tool": "create_mission"})
+            data = json.loads(raw)
+            if data.get("status") == "CREATED":
+                mission = data["mission"]
+                reply = ("DETERMINISTIC FALLBACK — recorded in the real mission "
+                         f"registry:\n- {mission['title']} [{mission['state']}] "
+                         f"— NO NEXT STEP RECORDED")
+            else:
+                reply = ("DETERMINISTIC FALLBACK: that mission could not be "
+                         f"created — {data.get('detail', 'unknown reason')}")
+        elif asks_next_step and "get_mission" in by_name:
+            raw = by_name["get_mission"].invoke({})
+            activity.append({"type": "TOOL_DECISION", "tool": "get_mission"})
+            data = json.loads(raw)
+            if data.get("status") == "OK":
+                mission = data["mission"]
+                if mission["next_step_status"] == "RECORDED":
+                    body = (f"Next step for '{mission['title']}': "
+                            f"{mission['next_step']}")
+                else:
+                    body = (f"NO NEXT STEP RECORDED for '{mission['title']}'. "
+                            f"Nothing has been invented to fill that gap.")
+            else:
+                body = data.get("detail", "No mission is under discussion.")
+            reply = f"DETERMINISTIC FALLBACK — read from the real mission record:\n{body}"
+        elif mission_action and mission_action in by_name:
+            raw = by_name[mission_action].invoke({})
+            activity.append({"type": "TOOL_DECISION", "tool": mission_action})
+            data = json.loads(raw)
+            status = data.get("status")
+            if status == "UPDATED":
+                body = (f"'{data['title']}' is now {data['state']} "
+                        f"(was {data['previous_state']}).")
+            elif status == "NO_CHANGE":
+                body = f"'{data['title']}' is already {data['state']}. Nothing changed."
+            elif status == "TERMINAL_STATE":
+                body = (f"'{data['title']}' is {data['state']}, a final state. "
+                        f"It was not reopened.")
+            else:
+                body = data.get("detail", "That could not be resolved.")
+            reply = f"DETERMINISTIC FALLBACK — read from the real mission record:\n{body}"
+        elif asks_missions and "list_missions" in by_name:
+            tool = ("get_current_focus"
+                    if re.search(r"working on|pending|leave off", low)
+                    else "list_missions")
+            raw = by_name[tool].invoke({})
+            activity.append({"type": "TOOL_DECISION", "tool": tool})
+            data = json.loads(raw)
+            status = data.get("status")
+            if status in ("NO_MISSIONS_RECORDED", "NOTHING_RECORDED"):
+                reply = ("DETERMINISTIC FALLBACK: no missions are recorded, so "
+                         "there is nothing to report. Nothing has been invented "
+                         "to fill the gap.")
+            else:
+                lines = []
+                for mission in data.get("missions", []):
+                    if mission["next_step_status"] == "RECORDED":
+                        nxt = f"next step: {mission['next_step']}"
+                    else:
+                        nxt = "NO NEXT STEP RECORDED"
+                    lines.append(
+                        f"- {mission['title']} [{mission['state']}, "
+                        f"{int(float(mission.get('progress') or 0) * 100)}%] — {nxt}")
+                for label in data.get("goals", []) or []:
+                    lines.append(f"- (goal, not a mission) {label}")
+                for label in data.get("projects", []) or []:
+                    lines.append(f"- (project, not a mission) {label}")
+                body = "\n".join(lines) or "- nothing recorded"
+                reply = ("DETERMINISTIC FALLBACK — read from the real mission "
+                         "and world records, composed without a language "
+                         f"model:\n{body}")
+        elif asks_recall:
             raw = by_name["search_memory"].invoke({"query": text, "top_k": 5})
             activity.append({"type": "TOOL_DECISION", "tool": "search_memory"})
             if raw.startswith("NO_STRONG_MATCH"):

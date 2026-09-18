@@ -51,6 +51,10 @@ class Runtime:
         self.agent.context_builder = self.cognition.context
         self.agent.router = self.cognition.router
         self.agent.policy_engine = self.cognition.policy
+        # v8.3.1: the cognitive subsystems become tools the model can call, so
+        # missions, world state, history and the rest participate in ordinary
+        # conversation instead of living only behind HTTP routes.
+        self.agent.cognition = self.cognition
         self.seed_if_empty()
 
     @staticmethod
