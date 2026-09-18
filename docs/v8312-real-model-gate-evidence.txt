@@ -1,0 +1,9 @@
+provider: ollama | before: paused
+elapsed: 2237s
+provider used: ollama
+TOOL TRACE:
+    TOOL_DECISION resume_mission 
+    TOOL_RESULT resume_mission 
+after: active
+ANSWER: The mission "Ship the billing migration" has been resumed. It is now active and ready to proceed.
+EXIT=0

@@ -21,13 +21,18 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 # Object kinds a reference can resolve to.
+# v8.3.1: focus is no longer only "what is open in the inspector". The
+# conversation sets it too, so "pause that" can resolve to a real object. The
+# cognitive object types are therefore focusable alongside the V8.2 UI kinds.
 KINDS = ("memory", "decision", "prediction", "world", "intent", "policy",
-         "arbitration", "influence", "continuity")
+         "arbitration", "influence", "continuity",
+         "mission", "goal", "project", "person", "simulation", "observation")
 
 # Natural phrasings that refer to a currently-inspected object.
 _REFERENCE = re.compile(
     r"\b(?:that|this|the)\s+(memory|decision|prediction|person|goal|project|"
-    r"commitment|intent|policy|preference|entity|item|one)\b", re.I)
+    r"commitment|intent|policy|preference|entity|item|one|mission|objective|"
+    r"simulation|observation)\b", re.I)
 
 # Bare deictic references ("why did you use that?", "explain this").
 _BARE = re.compile(
@@ -35,6 +40,8 @@ _BARE = re.compile(
     r"what (?:changed|happened) (?:with|to) (?:that|this|it)|"
     r"explain (?:that|this|it)|tell me (?:more )?about (?:that|this|it)|"
     r"forget (?:that|this|it)|undo (?:that|this|it)|"
+    r"(?:pause|resume|stop|continue|complete|finish|drop|abandon|"
+    r"deprioritise|deprioritize)\s+(?:that|this|it)|"
     r"(?:that|this|it) is (?:wrong|outdated|no longer true))\b", re.I)
 
 # Word → object kind.
@@ -43,6 +50,9 @@ _WORD_KIND = {
     "person": "world", "goal": "world", "project": "world",
     "commitment": "world", "entity": "world", "item": "world",
     "intent": "intent", "policy": "policy", "preference": "policy",
+    # v8.3.1 cognitive objects.
+    "mission": "mission", "objective": "mission",
+    "simulation": "simulation", "observation": "observation",
 }
 
 FOCUS_TTL_MINUTES = 30

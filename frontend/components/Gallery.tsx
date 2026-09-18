@@ -18,6 +18,16 @@ const SCREENS: Screen[] = [
   { id: "architecture", title: "Architecture", caption: "The stack, reported from live health." },
 ];
 
+/**
+ * Round a computed coordinate to 3 decimal places.
+ *
+ * Server and client can serialise the same floating-point result with a
+ * different final digit (e.g. 103.35379909339353 vs ...55), which React
+ * reports as a hydration mismatch. Rounding makes the markup deterministic
+ * without any visible change.
+ */
+const round3 = (n: number): number => Math.round(n * 1000) / 1000;
+
 function Artwork({ id }: { id: string }) {
   const common = { width: "100%", height: "100%", display: "block" } as const;
   switch (id) {
@@ -92,9 +102,13 @@ function Artwork({ id }: { id: string }) {
         <svg viewBox="0 0 400 260" style={common} aria-hidden="true">
           <rect width="400" height="260" fill="#0a0a0d" />
           {Array.from({ length: 42 }, (_, i) => {
-            const h = 12 + Math.abs(Math.sin(i * 0.55)) * 96;
-            return <rect key={i} x={30 + i * 8.2} y={130 - h / 2} width="3.4" height={h} rx="1.5"
-                         fill="#6ee7d7" opacity={0.28 + Math.abs(Math.sin(i * 0.55)) * 0.62} />;
+            // Rounded to 3dp: an unrounded Math.sin result can serialise with a
+            // different final digit on the server than the client recomputes,
+            // which React reports as a hydration mismatch.
+            const h = round3(12 + Math.abs(Math.sin(i * 0.55)) * 96);
+            return <rect key={i} x={round3(30 + i * 8.2)} y={round3(130 - h / 2)}
+                         width="3.4" height={h} rx="1.5" fill="#6ee7d7"
+                         opacity={round3(0.28 + Math.abs(Math.sin(i * 0.55)) * 0.62)} />;
           })}
           <rect x="150" y="212" width="100" height="12" rx="6" fill="rgba(244,241,234,0.12)" />
         </svg>

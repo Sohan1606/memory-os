@@ -257,3 +257,65 @@ genuinely observed may become a durable memory.**
 A simulation is not a fact. A prediction is not an observation. A stale fact is
 not a false one. An empty background cycle is not activity. Each of these
 distinctions is asserted by a test.
+
+---
+
+## V8.3.1 — how the conversation reaches cognition
+
+V8.3 gave the system missions, world history, predictions, attention and
+simulation. V8.3.1 connects them to the only interface that matters to a user:
+talking.
+
+### The path
+
+```
+POST /api/chat
+  ├─ cognition.process_turn(...)    understanding (intent, world, prediction)
+  └─ agent.run(...)
+       load_context   ContextBuilder → MISSION section first, then memory,
+                      episodic, goals, commitments, world, intent,
+                      preferences, decisions, predictions, capability
+       agent          model sees 5 memory tools + 15 cognitive tools
+       tools          one traced executor for both families
+       memory_manager response
+```
+
+`MemoryAgent._tools_for` is the single place the toolset is built, so the
+deterministic planner and the model path can never drift apart, and cognitive
+tools inherit the existing MODEL_CALL / TOOL_DECISION / TOOL_RESULT /
+MODEL_REVISION / FINAL_RESPONSE tracing without new tracing code.
+
+### Why the tools return sentinels
+
+A tool that returns `{}` invites a language model to fill the silence. Every
+cognitive tool therefore returns an explicit statement of absence —
+`NO_MISSIONS_RECORDED`, `NO_NEXT_STEP_RECORDED`, `NO_BLOCKERS_RECORDED`,
+`NO_CHANGES_RECORDED`, `HISTORY_NOT_AVAILABLE`, `NOTHING_RECORDED`,
+`INSUFFICIENT EVIDENCE` — and the system prompt instructs the model to repeat
+those plainly.
+
+This is the same epistemic discipline as §39, pushed one layer outward: it is
+no longer enough for the *store* to be honest, the *sentence* must be too.
+
+### Focus as conversational memory
+
+`FocusTracker` was V8.2 machinery for "what is open in the inspector". In
+V8.3.1 the conversation writes to it as well, keyed by `thread_id`, so a
+pronoun has a referent. Resolution order for a mutating tool with no explicit
+id:
+
+1. the object currently in focus for this thread;
+2. if nothing is focused and exactly one mission is open, that one;
+3. otherwise `AMBIGUOUS_REFERENCE` with the candidate list — the assistant
+   asks, and never picks.
+
+The tracker's existing refusal logic was kept intact; only the set of focusable
+kinds and the reference vocabulary grew.
+
+### Attention vs. a direct question (§14)
+
+Background attention decides what is worth *raising unprompted*. It has no
+authority over what may be *answered when asked*. `get_attention_state` reports
+real background findings and real suppressions; a suppressed topic is still
+disclosed when the user asks directly, because suppression is about
+interruption, not secrecy.

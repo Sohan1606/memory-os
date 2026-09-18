@@ -275,6 +275,112 @@ if something fails when they are violated:
   uvicorn restart.
 - **Degraded path** — with Ollama unreachable, every V8.3 subsystem still
   functions and no capability is claimed.
-- **Real Ollama path** — NOT VERIFIABLE IN THIS ENVIRONMENT (no server
-  reachable). Covered by scripted-model tests; real-model tests skip with an
-  explicit reason rather than passing silently.
+- **Real Ollama path (V8.3.1) — VERIFIED.** `llama3.2:3b` under a real Ollama
+  server: `tests/test_v831_real_model.py` → **4 passed in 7308.99 s
+  (2:01:48)**. With no scripting, the model chose `list_missions` itself for
+  "What missions am I currently working on?", answered from the real registry
+  ("Finish the quarterly report"), and when asked for the next step of a
+  mission that has none, it did not invent one — and answering wrote no state.
+
+  Environment note: this machine has ~2 GB RAM and no GPU, so the model runs on
+  CPU with 6 GB of swap at roughly 6.6 tok/s prompt and as low as 0.03 tok/s
+  generation on long contexts. That is why a four-test file takes two hours and
+  why the fixture raises `llm_timeout_s` to 900 s. The **product defaults stay
+  at 120 s / 180 s**; at the default the real model legitimately timed out and
+  the system degraded to the deterministic planner, exactly as designed. These
+  tests carry the `slow` marker — run `pytest -m "not slow"` to skip them.
+
+  The tests probe for the server once and skip with an explicit reason when it
+  is absent. A skip is never a pass.
+
+### V8.3.1 suite
+
+`tests/test_v831_conversational_cognition.py` — **47 tests** against the real
+runtime (real registry, real world model, real focus tracker, real SQLite):
+
+| Group | Covers |
+|---|---|
+| End-to-end scenario | the required 7 steps: create → list → next step → pause that → resume it → why → what changed |
+| Next-step truthfulness | absent step reported, recorded step quoted, empty registry stated, blockers real |
+| Object permanence | focus persists across calls, ambiguity refused, single mission resolves, `mission` is focusable, "that mission" resolves |
+| Creation discipline | explicit creation only, rubbish titles rejected |
+| Mission updates | completion, partial progress, invalid state, reason recorded |
+| Subsystem routing | projects from world state, goal ≠ mission, honest emptiness |
+| Explanation | real world changes, no subject → ask, nothing changed stated |
+| Epistemic labelling | RECORDED / SIMULATED / PREDICTED, simulation mutates nothing, history refused |
+| Attention | no manufactured findings, direct queries answered |
+| Mission-first context | missions in the bundle and prompt, survive unrelated turns, absent when none |
+| Agent integration | cognitive tools bound, memory tools preserved, model-chosen call traced |
+| Deterministic fallback | reads real missions, labels itself, keeps goals distinct |
+| Prior behaviour | V8.2 preference correction and the five memory tools intact |
+| Persistence | missions and steps survive a real restart |
+
+### What the V8.3.1 tests assert cannot happen
+
+- a mission with no recorded next step **cannot** be reported as having one
+- an empty mission registry **cannot** produce a list of missions
+- `"pause that"` with several open missions **cannot** pause an arbitrary one
+- a goal **cannot** be returned as a mission
+- a simulation **cannot** change mission state
+- answering a question **cannot** write mission state
+- the deterministic fallback **cannot** present itself as the real agent
+
+### V8.3.1.1 suite — mission action reliability
+
+`tests/test_v8311_mission_actions.py` — **28 tests**, 4.75 s, against the real
+runtime and the real `MissionRegistry`.
+
+| Area | What is asserted |
+|---|---|
+| Direct resume | explicit `mission_id`, real `paused → active`, `previous_state` reported |
+| Focus resume | `resume_mission()` with no arguments resolves through conversational focus |
+| Five-turn scenario | the exact reported conversation: create → list → next step → pause → resume |
+| Terminal missions | completed / failed / abandoned return `TERMINAL_STATE` and are not reopened |
+| Ambiguity | two paused missions and no focus → `AMBIGUOUS_REFERENCE`, nothing mutated |
+| No-ops | resuming an active mission → `NO_CHANGE` / `ALREADY_ACTIVE`, **no history row** |
+| Invalid transitions | resuming a *blocked* mission → `INVALID_TRANSITION` |
+| Tracing | `TOOL_DECISION resume_mission` followed by `TOOL_RESULT resume_mission` |
+| Events | the registry emits a real `mission.resumed`, not a synthesised one |
+| Fallback | the demo planner runs the whole scenario and stays labelled DETERMINISTIC |
+| Fallback safety | a *question* about missions creates nothing |
+
+**Real-model regression.** `TestRealModelMissionActions` in
+`tests/test_v831_real_model.py` (marked `slow`) drives an actual Ollama
+`llama3.2:3b`: it creates and pauses a mission, sets focus, sends "Resume it.",
+then asserts the provider is not `demo`, that the model itself selected
+`resume_mission`, that the registry is back to `active`, and that
+`mission.resumed` reached the bus. A companion test asserts the model does not
+resurrect a completed mission. Timeouts are raised in the fixture only; product
+defaults are untouched, and a legitimate timeout degrades and reports rather
+than being hidden.
+
+### What the V8.3.1.1 tests assert cannot happen
+
+- a **terminal** mission **cannot** be resumed back into life
+- a no-op **cannot** write a history row or claim a transition
+- an **ambiguous** "resume it" **cannot** resume an arbitrary mission
+- a mission state change **cannot** be narrated unless the tool result confirms it
+- the fallback **cannot** create a mission from a question about missions
+
+### V8.3.1.2 suite — null tolerance and focus-driven selection
+
+`tests/test_v8312_tool_routing.py` — **24 tests**.
+
+| Area | What is asserted |
+|---|---|
+| Null arguments | `open_only` true / false / null / omitted; null == omitted exactly |
+| Null safety | a null-argument listing creates and mutates nothing |
+| Null on actions | `{"mission_id": null, "reason": null}` still resumes via focus |
+| Focus lifecycle | focused paused→resume, active→pause, active→complete, →abandon |
+| Focus identity | with two open missions, focus alone picks the right one and the other is untouched |
+| Step vs mission | `complete_mission_step` does not complete the mission; the tools are distinct |
+| Canonical events | `mission.resumed` / `mission.paused` emitted by the registry |
+| No-op honesty | an already-active mission emits no `mission.resumed` |
+| Focus in prompt | the focused mission's id, state and valid actions appear; terminal offers none; no focus claims nothing; a deleted focused mission is not advertised |
+| Architecture | no `"resume" in ...` keyword routing on the real-model path |
+
+**Real-model release gate.** The gate for V8.3.1.2 is an actual `llama3.2:3b`
+run in which the model itself selects `resume_mission` for "Resume it." against
+a focused paused mission, ending `active`. Result recorded in
+`PROJECT_STATUS.md` with raw output in `docs/v8312-real-model-gate-evidence.txt`.
+A deterministic test passing is explicitly NOT sufficient for that claim.
