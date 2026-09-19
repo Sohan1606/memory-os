@@ -24,15 +24,16 @@ from typing import Any
 # v8.3.1: focus is no longer only "what is open in the inspector". The
 # conversation sets it too, so "pause that" can resolve to a real object. The
 # cognitive object types are therefore focusable alongside the V8.2 UI kinds.
-KINDS = ("memory", "decision", "prediction", "world", "intent", "policy",
-         "arbitration", "influence", "continuity",
-         "mission", "goal", "project", "person", "simulation", "observation")
+KINDS = ("memory", "experience", "skill", "principle", "decision",
+         "prediction", "world", "intent", "policy", "arbitration",
+         "influence", "continuity", "mission", "goal", "project", "person",
+         "simulation", "observation")
 
 # Natural phrasings that refer to a currently-inspected object.
 _REFERENCE = re.compile(
-    r"\b(?:that|this|the)\s+(memory|decision|prediction|person|goal|project|"
-    r"commitment|intent|policy|preference|entity|item|one|mission|objective|"
-    r"simulation|observation)\b", re.I)
+    r"\b(?:that|this|the)\s+(memory|experience|skill|principle|decision|"
+    r"prediction|person|goal|project|commitment|intent|policy|preference|"
+    r"entity|item|one|mission|objective|simulation|observation)\b", re.I)
 
 # Bare deictic references ("why did you use that?", "explain this").
 _BARE = re.compile(
@@ -40,14 +41,16 @@ _BARE = re.compile(
     r"what (?:changed|happened) (?:with|to) (?:that|this|it)|"
     r"explain (?:that|this|it)|tell me (?:more )?about (?:that|this|it)|"
     r"forget (?:that|this|it)|undo (?:that|this|it)|"
+    r"(?:stop using|is that still valid|how did you learn) (?:that|this|it)|"
     r"(?:pause|resume|stop|continue|complete|finish|drop|abandon|"
     r"deprioritise|deprioritize)\s+(?:that|this|it)|"
     r"(?:that|this|it) is (?:wrong|outdated|no longer true))\b", re.I)
 
 # Word → object kind.
 _WORD_KIND = {
-    "memory": "memory", "decision": "decision", "prediction": "prediction",
-    "person": "world", "goal": "world", "project": "world",
+    "memory": "memory", "experience": "experience", "skill": "skill",
+    "principle": "principle", "decision": "decision",
+    "prediction": "prediction", "person": "world", "goal": "world", "project": "world",
     "commitment": "world", "entity": "world", "item": "world",
     "intent": "intent", "policy": "policy", "preference": "policy",
     # v8.3.1 cognitive objects.

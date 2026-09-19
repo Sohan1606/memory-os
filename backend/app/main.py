@@ -30,6 +30,11 @@ from .schemas.api import (AttentionReactionRequest, AttentionRequest,
                           OutcomeObservationRequest, ResearchRequest,
                           SimulationCommitRequest, SimulationRequest,
                           WorldReconcileRequest)
+from .schemas.api import (DecisionOutcomeRequest, ExperienceCreateRequest,
+                          ExperienceLifecycleRequest, KnowledgeCorrectionRequest,
+                          KnowledgeOutcomeRequest, KnowledgeRetrievalRequest,
+                          KnowledgeUseRequest, PrincipleCandidateRequest,
+                          SkillCandidateRequest)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -38,7 +43,7 @@ app = FastAPI(
     title="MEMORY//OS API",
     description="Local-first AI agent with long-term memory. LangGraph + LangChain "
                 "+ ChromaDB + local embeddings + SQLite.",
-    version="1.0.0",
+    version="8.4.1",
 )
 
 origins = ["*"] if settings.cors_origins.strip() == "*" else [
@@ -60,6 +65,11 @@ def uid(runtime: Runtime, provided: str | None) -> str:
 @app.exception_handler(ValueError)
 async def value_error_handler(_request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(KeyError)
+async def key_error_handler(_request, _exc: KeyError):
+    return JSONResponse(status_code=404, content={"detail": "Object not found."})
 
 
 # ---------------------------------------------------------------- diagnostics
@@ -469,9 +479,9 @@ def causality(node_kind: str, node_id: str, user_id: str | None = None,
     u = uid(runtime, user_id)
     graph = runtime.cognition.causal
     return {"node": {"kind": node_kind, "id": node_id},
-            "downstream": graph.downstream(node_kind, node_id),
-            "upstream": graph.upstream(node_kind, node_id),
-            "chain": graph.chain(node_kind, node_id),
+            "downstream": graph.downstream(node_kind, node_id, user_id=u),
+            "upstream": graph.upstream(node_kind, node_id, user_id=u),
+            "chain": graph.chain(node_kind, node_id, user_id=u),
             "impact": (graph.impact(u, node_id) if node_kind == "memory"
                        else {"detail": "Impact is only measured for memories."})}
 
@@ -484,9 +494,21 @@ def decisions(user_id: str | None = None, runtime: Runtime = Depends(rt)):
 @app.post("/api/decisions")
 def record_decision(body: DecisionRequest, runtime: Runtime = Depends(rt)):
     return runtime.cognition.decisions.record(
-        uid(runtime, body.user_id), body.question, body.chosen,
-        alternatives=body.alternatives, expectation=body.expectation,
+        uid(runtime, body.user_id), body.question, chosen=body.chosen,
+        alternatives=body.alternatives, expected_outcome=body.expectation,
         influenced_by=body.influenced_by)
+
+
+@app.post("/api/decisions/{decision_id}/outcome")
+def resolve_decision(decision_id: str, body: DecisionOutcomeRequest,
+                     runtime: Runtime = Depends(rt)):
+    result = runtime.cognition.decisions.resolve(
+        uid(runtime, body.user_id), decision_id, body.actual_outcome,
+        positive=body.positive, tradeoffs=body.tradeoffs, lesson=body.lesson,
+        regret_evidence=body.regret_evidence)
+    if result is None:
+        raise HTTPException(404, "Unknown or already-resolved decision.")
+    return result
 
 
 # ------------------------------------------------------- memory reputation
@@ -527,13 +549,281 @@ def set_autonomy(body: AutonomyRequest, runtime: Runtime = Depends(rt)):
 def learning(user_id: str | None = None, runtime: Runtime = Depends(rt)):
     u = uid(runtime, user_id)
     le = runtime.cognition.learning
-    return {"policies": le.policies(u), "self_evaluation": le.self_evaluation(u)}
+    return {"policies": le.policies(u), "self_evaluation": le.self_evaluation(u),
+            "experience_count": len(runtime.cognition.experiences.list(u, limit=500)),
+            "knowledge": runtime.cognition.knowledge.stats(u)}
 
 
 @app.post("/api/learning/consolidate")
 def consolidate_learning(user_id: str | None = None, runtime: Runtime = Depends(rt)):
-    """Background pattern mining over the real event log."""
-    return runtime.cognition.learning.consolidate(uid(runtime, user_id))
+    """Run policy mining plus V8.4.1 evidence-backed candidate maintenance."""
+    u = uid(runtime, user_id)
+    # Preserve the established top-level policy-learning response and add the
+    # V8.4.1 evidence-backed result without breaking existing clients.
+    policy_learning = runtime.cognition.learning.consolidate(u)
+    return {**policy_learning,
+            "experience_learning": runtime.cognition.knowledge.maintain(u)}
+
+
+# ================================================================ V8.4.1
+# Experiences are meaningful observed episodes; canonical observations remain
+# their evidence. Skills and Principles share validation/use APIs but keep
+# distinct kinds, thresholds and routes for an explicit product contract.
+@app.get("/api/experiences")
+def experiences(user_id: str | None = None, lifecycle: str | None = None,
+                pattern_key: str | None = None, limit: int = 100,
+                runtime: Runtime = Depends(rt)):
+    return {"experiences": runtime.cognition.experiences.list(
+        uid(runtime, user_id), lifecycle=lifecycle, pattern_key=pattern_key,
+        limit=limit)}
+
+
+@app.post("/api/experiences", status_code=201)
+def create_experience(body: ExperienceCreateRequest,
+                      runtime: Runtime = Depends(rt)):
+    return runtime.cognition.experiences.create(
+        uid(runtime, body.user_id), body.situation,
+        evidence_ids=body.evidence_ids, action=body.action, outcome=body.outcome,
+        success=body.success, observation=body.observation, context=body.context,
+        intent=body.intent, need=body.need, consequences=body.consequences,
+        confidence=body.confidence, scope_kind=body.scope_kind,
+        scope_value=body.scope_value, pattern_key=body.pattern_key,
+        source=body.source, provenance=body.provenance, thread_id=body.thread_id)
+
+
+@app.get("/api/experiences/{experience_id}")
+def get_experience(experience_id: str, user_id: str | None = None,
+                   runtime: Runtime = Depends(rt)):
+    item = runtime.cognition.experiences.get(uid(runtime, user_id), experience_id)
+    if item is None:
+        raise HTTPException(404, "Unknown experience.")
+    return item
+
+
+@app.post("/api/experiences/{experience_id}/lifecycle")
+def transition_experience(experience_id: str, body: ExperienceLifecycleRequest,
+                          runtime: Runtime = Depends(rt)):
+    user = uid(runtime, body.user_id)
+    if body.lifecycle == "validated":
+        return runtime.cognition.experiences.validate(
+            user, experience_id, reason=body.reason)
+    if body.lifecycle == "active":
+        return runtime.cognition.experiences.activate(
+            user, experience_id, reason=body.reason)
+    if body.lifecycle == "archived":
+        return runtime.cognition.experiences.archive(
+            user, experience_id, reason=body.reason)
+    return runtime.cognition.experiences.transition(
+        user, experience_id, body.lifecycle, reason=body.reason,
+        evidence_ids=body.evidence_ids)
+
+
+@app.get("/api/experiences/{experience_id}/provenance")
+def experience_provenance(experience_id: str, user_id: str | None = None,
+                          runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.cognition.experiences.provenance(
+            uid(runtime, user_id), experience_id)
+    except KeyError:
+        raise HTTPException(404, "Unknown experience.")
+
+
+def _knowledge_list(kind: str, user_id: str | None, lifecycle: str | None,
+                    limit: int, runtime: Runtime):
+    return {f"{kind}s": runtime.cognition.knowledge.list(
+        uid(runtime, user_id), kind=kind, lifecycle=lifecycle, limit=limit),
+        "stats": runtime.cognition.knowledge.stats(uid(runtime, user_id))}
+
+
+@app.get("/api/skills")
+def skills(user_id: str | None = None, lifecycle: str | None = None,
+           limit: int = 100, runtime: Runtime = Depends(rt)):
+    return _knowledge_list("skill", user_id, lifecycle, limit, runtime)
+
+
+@app.get("/api/principles")
+def principles(user_id: str | None = None, lifecycle: str | None = None,
+               limit: int = 100, runtime: Runtime = Depends(rt)):
+    return _knowledge_list("principle", user_id, lifecycle, limit, runtime)
+
+
+@app.post("/api/skills/candidates", status_code=201)
+def create_skill_candidate(body: SkillCandidateRequest,
+                           runtime: Runtime = Depends(rt)):
+    return runtime.cognition.knowledge.propose_skill(
+        uid(runtime, body.user_id), body.name, body.statement,
+        trigger=body.trigger, procedure=body.procedure,
+        expected_outcome=body.expected_outcome,
+        supporting_experience_ids=body.supporting_experience_ids,
+        counterexample_experience_ids=body.counterexample_experience_ids,
+        context=body.context, preconditions=body.preconditions,
+        scope_kind=body.scope_kind, scope_value=body.scope_value,
+        pattern_key=body.pattern_key,
+        generalization_hint=body.generalization_hint,
+        source=body.source, provenance=body.provenance)
+
+
+@app.post("/api/principles/candidates", status_code=201)
+def create_principle_candidate(body: PrincipleCandidateRequest,
+                               runtime: Runtime = Depends(rt)):
+    return runtime.cognition.knowledge.propose_principle(
+        uid(runtime, body.user_id), body.name, body.statement,
+        supporting_skill_ids=body.supporting_skill_ids,
+        supporting_experience_ids=body.supporting_experience_ids,
+        counterexample_experience_ids=body.counterexample_experience_ids,
+        application=body.application, expected_outcome=body.expected_outcome,
+        scope_kind=body.scope_kind, scope_value=body.scope_value,
+        pattern_key=body.pattern_key, generality=body.generality,
+        source=body.source, provenance=body.provenance)
+
+
+@app.post("/api/skills/retrieve")
+def retrieve_skills(body: KnowledgeRetrievalRequest,
+                    runtime: Runtime = Depends(rt)):
+    return runtime.cognition.knowledge.retrieve(
+        uid(runtime, body.user_id), body.query, kind="skill", scope=body.scope,
+        current_world=body.current_world, limit=body.limit)
+
+
+@app.post("/api/principles/retrieve")
+def retrieve_principles(body: KnowledgeRetrievalRequest,
+                        runtime: Runtime = Depends(rt)):
+    return runtime.cognition.knowledge.retrieve(
+        uid(runtime, body.user_id), body.query, kind="principle", scope=body.scope,
+        current_world=body.current_world, limit=body.limit)
+
+
+@app.get("/api/learning/usages")
+def knowledge_usages(user_id: str | None = None, item_id: str | None = None,
+                     pending: bool = False, limit: int = 100,
+                     runtime: Runtime = Depends(rt)):
+    u = uid(runtime, user_id)
+    return {"usages": runtime.cognition.knowledge.usages(
+        u, item_id=item_id, pending=pending, limit=limit)}
+
+
+@app.post("/api/learning/usages/{usage_id}/outcome")
+def knowledge_usage_outcome(usage_id: str, body: KnowledgeOutcomeRequest,
+                            runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.cognition.knowledge.record_outcome(
+            uid(runtime, body.user_id), usage_id, verdict=body.verdict,
+            detail=body.detail, evidence=body.evidence)
+    except KeyError:
+        raise HTTPException(404, "Unknown learned-knowledge usage.")
+
+
+def _get_knowledge(kind: str, item_id: str, user_id: str | None,
+                   runtime: Runtime):
+    item = runtime.cognition.knowledge.get(uid(runtime, user_id), item_id)
+    if item is None or item["kind"] != kind:
+        raise HTTPException(404, f"Unknown {kind}.")
+    return item
+
+
+@app.get("/api/skills/{item_id}")
+def get_skill(item_id: str, user_id: str | None = None,
+              runtime: Runtime = Depends(rt)):
+    return _get_knowledge("skill", item_id, user_id, runtime)
+
+
+@app.get("/api/principles/{item_id}")
+def get_principle(item_id: str, user_id: str | None = None,
+                  runtime: Runtime = Depends(rt)):
+    return _get_knowledge("principle", item_id, user_id, runtime)
+
+
+@app.get("/api/skills/{item_id}/explanation")
+def explain_skill(item_id: str, user_id: str | None = None,
+                  runtime: Runtime = Depends(rt)):
+    _get_knowledge("skill", item_id, user_id, runtime)
+    return runtime.cognition.knowledge.explain(uid(runtime, user_id), item_id)
+
+
+@app.get("/api/principles/{item_id}/explanation")
+def explain_principle(item_id: str, user_id: str | None = None,
+                      runtime: Runtime = Depends(rt)):
+    _get_knowledge("principle", item_id, user_id, runtime)
+    return runtime.cognition.knowledge.explain(uid(runtime, user_id), item_id)
+
+
+def _validate_knowledge(kind: str, item_id: str, user_id: str | None,
+                        runtime: Runtime):
+    _get_knowledge(kind, item_id, user_id, runtime)
+    return runtime.cognition.knowledge.validate(uid(runtime, user_id), item_id)
+
+
+@app.post("/api/skills/{item_id}/validate")
+def validate_skill(item_id: str, user_id: str | None = None,
+                   runtime: Runtime = Depends(rt)):
+    return _validate_knowledge("skill", item_id, user_id, runtime)
+
+
+@app.post("/api/principles/{item_id}/validate")
+def validate_principle(item_id: str, user_id: str | None = None,
+                       runtime: Runtime = Depends(rt)):
+    return _validate_knowledge("principle", item_id, user_id, runtime)
+
+
+def _promote_knowledge(kind: str, item_id: str, user_id: str | None,
+                       runtime: Runtime):
+    _get_knowledge(kind, item_id, user_id, runtime)
+    return runtime.cognition.knowledge.promote(uid(runtime, user_id), item_id)
+
+
+@app.post("/api/skills/{item_id}/promote")
+def promote_skill(item_id: str, user_id: str | None = None,
+                  runtime: Runtime = Depends(rt)):
+    return _promote_knowledge("skill", item_id, user_id, runtime)
+
+
+@app.post("/api/principles/{item_id}/promote")
+def promote_principle(item_id: str, user_id: str | None = None,
+                      runtime: Runtime = Depends(rt)):
+    return _promote_knowledge("principle", item_id, user_id, runtime)
+
+
+def _use_knowledge(kind: str, item_id: str, body: KnowledgeUseRequest,
+                   runtime: Runtime):
+    _get_knowledge(kind, item_id, body.user_id, runtime)
+    return runtime.cognition.knowledge.record_use(
+        uid(runtime, body.user_id), item_id,
+        influenced_kind=body.influenced_kind, influenced_id=body.influenced_id,
+        how=body.how, context=body.context, weight=body.weight,
+        arbitration_id=body.arbitration_id)
+
+
+@app.post("/api/skills/{item_id}/use")
+def use_skill(item_id: str, body: KnowledgeUseRequest,
+              runtime: Runtime = Depends(rt)):
+    return _use_knowledge("skill", item_id, body, runtime)
+
+
+@app.post("/api/principles/{item_id}/use")
+def use_principle(item_id: str, body: KnowledgeUseRequest,
+                  runtime: Runtime = Depends(rt)):
+    return _use_knowledge("principle", item_id, body, runtime)
+
+
+def _correct_knowledge(kind: str, item_id: str, body: KnowledgeCorrectionRequest,
+                       runtime: Runtime):
+    _get_knowledge(kind, item_id, body.user_id, runtime)
+    return runtime.cognition.knowledge.correct(
+        uid(runtime, body.user_id), item_id, action=body.action,
+        reason=body.reason, scope_kind=body.scope_kind,
+        scope_value=body.scope_value, evidence=body.evidence)
+
+
+@app.post("/api/skills/{item_id}/correction")
+def correct_skill(item_id: str, body: KnowledgeCorrectionRequest,
+                  runtime: Runtime = Depends(rt)):
+    return _correct_knowledge("skill", item_id, body, runtime)
+
+
+@app.post("/api/principles/{item_id}/correction")
+def correct_principle(item_id: str, body: KnowledgeCorrectionRequest,
+                      runtime: Runtime = Depends(rt)):
+    return _correct_knowledge("principle", item_id, body, runtime)
 
 
 # ------------------------------------------------------------------- sandbox

@@ -249,3 +249,97 @@ Observatory gains three panels — Missions, Continuous state, Background
 cognition — and they are strictly inspection surfaces over real recorded data.
 Nothing in the UI holds parallel state, and nothing there fabricates activity:
 the Background panel shows empty cycles as empty.
+
+
+---
+
+## V8.4.1 — evidence-backed abstractions
+
+V8.4.1 adds an abstraction layer without adding a parallel memory, event,
+reputation, arbitration or causal system.
+
+```text
+canonical ObservationLog
+          │ owned evidence
+          ▼
+      ExperienceStore ── experience_transitions
+          │ pattern + observed action/outcome
+          ▼
+      KnowledgeService ── knowledge_items / evidence / validations
+          │                     │
+          ├── ReputationStore ◄─┤ observed usage outcomes
+          ├── ArbiterV2 ◄───────┤ retrieval candidates
+          ├── CausalGraph ◄─────┤ provenance / influence / outcome edges
+          └── EventBus ◄────────┘ canonical lifecycle events
+                    │
+                    ▼
+           ContextBuilder → agent / DecisionLog
+                    │
+                    ▼
+           knowledge_usages → outcome → refinement
+```
+
+### Composition
+
+`Cognition.__init__` builds V8.4.1 in dependency order:
+
+```text
+observations + canonical causal graph
+    → ExperienceStore
+    → existing ReputationStore + ArbiterV2
+    → KnowledgeService
+    → existing BackgroundCognition / ContextBuilder / agent collaborators
+```
+
+`DecisionLog` receives Experience and Knowledge collaborators after construction
+to preserve the existing composition shape and avoid circular imports.
+
+### Storage boundary
+
+`SCHEMA_V841` is executed after the existing V8.3 schema. It creates nine
+additive tables for episodes, evidence links, validation, reputation, usage and
+transitions. Existing tables and migrations are unchanged. Every ownership-
+sensitive table carries `user_id`; every service query and evidence-link check
+uses it.
+
+Foreign-key-like links to memories, observations, Skills, Principles and causal
+nodes intentionally use stable text ids because several canonical sources live
+in separate tables. Ownership and type are verified in service code before a
+link is written.
+
+### Lifecycle and promotion boundary
+
+Candidate creation, validation and promotion are separate operations. The
+background task calls only creation and deterministic validation. `promote()`
+requires a persisted latest PASS and is never called from background cognition.
+This boundary prevents frequency, an LLM proposal, or an unattended cycle from
+creating trusted guidance.
+
+### Retrieval boundary
+
+`KnowledgeService.retrieve()` first restricts by user and live lifecycle. It
+then computes explicit precondition/current-world checks. `ArbiterV2` applies
+scope as a hard gate and scores the eligible set. The same persisted arbitration
+ledger used for memories records the winner, blocked candidates and factors.
+
+A winner is not an influence until it enters bounded turn context or is
+explicitly attached to a decision. Only then does `record_use()` create a usage
+row and causal edge.
+
+### Conversation boundary
+
+The four V8.4.1 cognitive tools are ordinary LangChain structured tools added at
+the existing `_tools_for()` composition point. On the genuine model path the
+model selects them. The deterministic demo planner is still separately labelled
+and no learned-object keyword router was introduced.
+
+### Frontend boundary
+
+`ExperienceSkillPrinciplePanel` owns no learning state. It loads typed API
+responses, filters them for display, and sends selected stable ids to the
+existing focus API. Confidence and reputation are rendered from separate
+fields. Missing data is displayed as insufficient evidence rather than filled
+with client defaults.
+
+Full lifecycle, thresholds, correction semantics and limitations are documented
+in [V8.4.1.md](V8.4.1.md).

@@ -25,6 +25,8 @@ from .background import BackgroundCognition
 from .connectors import ConnectorRegistry, ResearchMode
 from .context_builder import ContextBuilder
 from .documents import DocumentStore
+from .experience import ExperienceStore
+from .knowledge import KnowledgeService
 from .maintenance import MaintenanceV2
 from .missions import MissionRegistry
 from .observation import ObservationLog
@@ -115,6 +117,21 @@ class Cognition:
         # wraps WorldModel, attention_v2 wraps AttentionEngine, and simulation
         # reuses the V8.2 Sandbox projection.
         self.observations = ObservationLog(db, self.bus)
+        # ---------------------------------------------------- v8.4.1 additions
+        # Experiences reuse canonical observations; Skills/Principles reuse the
+        # existing reputation, arbitration, causal and event infrastructure.
+        self.experiences = ExperienceStore(
+            db, self.bus, self.observations, self.causal)
+        self.knowledge = KnowledgeService(
+            db, self.bus, self.experiences, self.reputation, self.causal,
+            self.arbiter_v2)
+        # Short-lived handoff to the agent's canonical ContextBuilder pass. The
+        # records themselves persist; this cache only prevents duplicate
+        # retrieval/arbitration during the same correlated turn.
+        self._learned_turns: dict[str, dict[str, Any]] = {}
+        self.decisions.knowledge = self.knowledge
+        self.decisions.observations = self.observations
+        self.decisions.experiences = self.experiences
         self.missions = MissionRegistry(db, self.bus, self.observations)
         self.world_v2 = WorldStateV2(db, self.bus, self.world, self.observations)
         self.documents = DocumentStore(db, self.bus, self.observations)
@@ -129,7 +146,8 @@ class Cognition:
         self.research = ResearchMode(db, self.bus, provider=None)
         self.background = BackgroundCognition(
             db, self.bus, world_v2=self.world_v2, missions=self.missions,
-            maintenance=self.maintenance, predictions=self.predictions)
+            maintenance=self.maintenance, predictions=self.predictions,
+            learning=self.knowledge)
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,
@@ -252,12 +270,30 @@ class Cognition:
             except Exception:  # influence tracking must not break the turn
                 pass
 
+        # --- v8.4.1 learned guidance: retrieve Skills and Principles through
+        # the same evidence-weighted arbitration architecture. Scope is built
+        # only from current world objects explicitly relevant to this message.
+        learned_scope = self._learned_scope(message, entities)
+        current_world = [f"{e.get('kind')}: {e.get('label')} [{e.get('state')}]"
+                         for e in entities]
+        learned = {
+            "skills": self.knowledge.retrieve(
+                user_id, message, kind="skill", scope=learned_scope,
+                current_world=current_world, correlation_id=cid),
+            "principles": self.knowledge.retrieve(
+                user_id, message, kind="principle", scope=learned_scope,
+                current_world=current_world, correlation_id=cid),
+        }
+        self._learned_turns[cid] = learned
+        if len(self._learned_turns) > 100:
+            self._learned_turns.pop(next(iter(self._learned_turns)))
+
         # --- v8.2 continuity: what from earlier still matters here? ----------
         continuity_items = self.continuity.relevant_to(user_id, message)
 
-        # --- v8.2 canonical context assembly ---------------------------------
+        # --- v8.2/v8.4.1 canonical context assembly --------------------------
         context_bundle = self.context.build(
-            user_id, message, retrieved=retrieved["candidates"],
+            user_id, message, retrieved=retrieved["candidates"], learned=learned,
             thread_id=conversation_id, correlation_id=cid)
         self.bus.emit(
             user_id,
@@ -271,6 +307,49 @@ class Cognition:
                      "degraded": context_bundle.degraded,
                      "unavailable": [u["source"] for u in
                                      context_bundle.unavailable]})
+
+        # Entering the bounded response context is the same material-influence
+        # threshold V8.2 uses for memories. Retrieval alone is not a use. The
+        # influence targets a real DecisionLog row—not a synthetic thread id—so
+        # a later observed outcome can close the canonical causal loop.
+        inclusions: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        for section, result in (("skill", learned["skills"]),
+                                ("principle", learned["principles"])):
+            winner = result.get("winner")
+            included = {i.id for i in context_bundle.sections.get(section, [])}
+            if winner and winner["subject_id"] in included:
+                inclusions.append((section, result, winner))
+        learned_influences: list[dict[str, Any]] = []
+        learned_decision = None
+        if inclusions:
+            names = [winner["item"]["name"] for _, _, winner in inclusions]
+            primary = inclusions[0][2]["item"]
+            chosen = next(
+                (step for step in primary.get("procedure", []) if str(step).strip()),
+                primary.get("statement") or "Apply the retrieved learned guidance.")
+            expected = (primary.get("expected_outcome")
+                        or "A context-appropriate response informed by prior evidence.")
+            learned_decision = self.decisions.record(
+                user_id,
+                f"Use learned guidance while responding to: {message[:400]}",
+                context="Conversational response planning.",
+                alternatives=["Respond without learned guidance"] + names,
+                chosen=chosen, expected_outcome=expected, correlation_id=cid)
+            for section, result, winner in inclusions:
+                try:
+                    learned_influences.append(self.knowledge.record_use(
+                        user_id, winner["subject_id"],
+                        influenced_kind="decision",
+                        influenced_id=learned_decision["id"],
+                        how=(f"Won {section} arbitration and entered the bounded "
+                             "response context."),
+                        context={"message": message[:500],
+                                 "scope": learned_scope},
+                        weight=min(1.0, float(winner["score"])),
+                        arbitration_id=result["arbitration"]["id"],
+                        correlation_id=cid))
+                except (KeyError, ValueError) as exc:
+                    log.info("Could not record %s influence: %s", section, exc)
 
         predictions = self.predictions.assess_world(user_id, self.world,
                                                     correlation_id=cid)
@@ -322,10 +401,33 @@ class Cognition:
             "reference": reference,
             "control": control,
             "influences": influences,
+            "learned": learned,
+            "learned_decision": learned_decision,
+            "learned_influences": learned_influences,
             "continuity": continuity_items,
             "context": context_bundle.as_dict(),
             "capabilities": self.router.report().as_dict(),
         }
+
+    def learned_for_turn(self, correlation_id: str | None) -> dict[str, Any] | None:
+        """Return the already-arbitrated learned context for one agent turn."""
+        return self._learned_turns.get(correlation_id or "")
+
+    @staticmethod
+    def _learned_scope(message: str,
+                       entities: list[dict[str, Any]]) -> dict[str, str]:
+        """Derive only explicitly relevant scope values from current world state."""
+        words = {w for w in message.lower().replace("/", " ").split() if len(w) > 2}
+        scope: dict[str, str] = {}
+        for entity in entities:
+            kind = str(entity.get("kind") or "")
+            if kind not in ("project", "domain", "environment", "task"):
+                continue
+            label = str(entity.get("label") or "")
+            label_words = {w for w in label.lower().split() if len(w) > 2}
+            if words & label_words:
+                scope[kind] = label
+        return scope
 
     def _retrieve(self, user_id: str, message: str, cid: str) -> dict[str, Any]:
         """Retrieve memories and record that retrieval as real reputation evidence."""
@@ -384,7 +486,8 @@ class Cognition:
     # -------------------------------------------------------------- surfaces
     def why(self, user_id: str, subject_kind: str, subject_id: str) -> dict[str, Any]:
         """'Why do you think that?' - the event history of a single object."""
-        events = self.bus.for_subject(subject_kind, subject_id)
+        events = self.bus.for_subject(
+            subject_kind, subject_id, user_id=user_id)
         rep = (self.reputation.get(user_id, subject_id)
                if subject_kind == "memory" else None)
         if not events:
@@ -431,6 +534,11 @@ class Cognition:
             "capability_trust": self.capability_trust.all(user_id),
             "continuity": self.continuity.open_items(user_id, limit=10),
             "need_accuracy": self.needs.accuracy(user_id),
+            # ------------------------------------------------------ v8.4.1
+            "learning_v841": {
+                "experience_count": len(self.experiences.list(user_id, limit=500)),
+                **self.knowledge.stats(user_id),
+            },
         }
 
     # ---------------------------------------------------- v8.2 explanations
@@ -439,7 +547,8 @@ class Cognition:
         """
         'Why now?' — what made this relevant at this moment, from real events.
         """
-        events = self.bus.for_subject(subject_kind, subject_id)
+        events = self.bus.for_subject(
+            subject_kind, subject_id, user_id=user_id)
         if not events:
             return {"subject": {"kind": subject_kind, "id": subject_id},
                     "explanation": ("INSUFFICIENT EVIDENCE — nothing has been "
@@ -470,7 +579,8 @@ class Cognition:
         'Why did you use this memory?' — arbitration evidence plus influence and
         outcome history. Every claim is read back from stored records.
         """
-        arbitrations = self.arbiter_v2.for_memory(memory_id, limit=5)
+        arbitrations = self.arbiter_v2.for_memory(
+            memory_id, limit=5, user_id=user_id)
         impact = self.influence.impact(user_id, memory_id)
         rep = self.reputation.get(user_id, memory_id)
 

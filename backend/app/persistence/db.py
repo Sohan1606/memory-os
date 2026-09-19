@@ -557,6 +557,187 @@ CREATE TABLE IF NOT EXISTS research_sessions (
 CREATE INDEX IF NOT EXISTS idx_research_user ON research_sessions(user_id, id DESC);
 """
 
+# V8.4.1 experience -> skill -> principle persistence. These tables are
+# additive and deliberately reference stable ids rather than embedding evidence
+# blobs in the learned object. That keeps provenance queryable and auditable.
+SCHEMA_V841 = """
+CREATE TABLE IF NOT EXISTS experiences (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    thread_id TEXT,
+    situation TEXT NOT NULL,
+    context TEXT,
+    intent TEXT,
+    need TEXT,
+    action TEXT,
+    observation TEXT,
+    outcome TEXT,
+    consequences TEXT,
+    success INTEGER,
+    surprise REAL,
+    regret REAL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    scope_kind TEXT NOT NULL DEFAULT 'user',
+    scope_value TEXT,
+    pattern_key TEXT,
+    source TEXT NOT NULL,
+    provenance TEXT NOT NULL,
+    lifecycle TEXT NOT NULL DEFAULT 'observed',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experiences_user
+    ON experiences(user_id, lifecycle, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_experiences_pattern
+    ON experiences(user_id, pattern_key, success);
+
+CREATE TABLE IF NOT EXISTS experience_evidence (
+    experience_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    observation_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'supporting',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (experience_id, observation_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_experience_evidence
+    ON experience_evidence(user_id, experience_id);
+
+CREATE TABLE IF NOT EXISTS experience_transitions (
+    id TEXT PRIMARY KEY,
+    experience_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    previous_lifecycle TEXT,
+    lifecycle TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_experience_transitions
+    ON experience_transitions(user_id, experience_id, created_at);
+
+-- Skills and principles share one structural store because both are learned
+-- abstractions with the same evidence, lifecycle, validation and usage rules.
+-- `kind` preserves their distinct semantics and validation thresholds.
+CREATE TABLE IF NOT EXISTS knowledge_items (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    trigger_text TEXT,
+    context TEXT,
+    preconditions TEXT,
+    procedure TEXT,
+    expected_outcome TEXT,
+    scope_kind TEXT NOT NULL DEFAULT 'user',
+    scope_value TEXT,
+    pattern_key TEXT,
+    generalization_hint TEXT,
+    generality REAL NOT NULL DEFAULT 0.0,
+    confidence REAL NOT NULL DEFAULT 0.0,
+    lifecycle TEXT NOT NULL DEFAULT 'candidate',
+    validation_status TEXT NOT NULL DEFAULT 'pending',
+    source TEXT NOT NULL,
+    provenance TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_used_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_user
+    ON knowledge_items(user_id, kind, lifecycle, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_pattern
+    ON knowledge_items(user_id, kind, pattern_key);
+
+CREATE TABLE IF NOT EXISTS knowledge_evidence (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    item_kind TEXT NOT NULL,
+    evidence_kind TEXT NOT NULL,
+    evidence_id TEXT NOT NULL,
+    stance TEXT NOT NULL DEFAULT 'supporting',
+    relation TEXT NOT NULL DEFAULT 'derived_from',
+    quality REAL NOT NULL DEFAULT 0.5,
+    note TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (item_id, evidence_kind, evidence_id, stance)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_item
+    ON knowledge_evidence(user_id, item_id, stance);
+CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_source
+    ON knowledge_evidence(evidence_kind, evidence_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_validations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    item_kind TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    metrics TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    validator TEXT NOT NULL,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_validations
+    ON knowledge_validations(user_id, item_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS abstraction_reputation (
+    item_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_kind TEXT NOT NULL,
+    retrievals INTEGER NOT NULL DEFAULT 0,
+    usages INTEGER NOT NULL DEFAULT 0,
+    successes INTEGER NOT NULL DEFAULT 0,
+    failures INTEGER NOT NULL DEFAULT 0,
+    neutral_outcomes INTEGER NOT NULL DEFAULT 0,
+    evidence_contradictions INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_abstraction_reputation_user
+    ON abstraction_reputation(user_id, item_kind);
+
+CREATE TABLE IF NOT EXISTS knowledge_usages (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    item_kind TEXT NOT NULL,
+    influenced_kind TEXT NOT NULL,
+    influenced_id TEXT NOT NULL,
+    context TEXT,
+    how TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 0.5,
+    status TEXT NOT NULL DEFAULT 'awaiting_outcome',
+    outcome_verdict TEXT,
+    outcome_detail TEXT,
+    outcome_evidence TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_usages_item
+    ON knowledge_usages(user_id, item_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_usages_open
+    ON knowledge_usages(user_id, status);
+
+CREATE TABLE IF NOT EXISTS knowledge_transitions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    item_kind TEXT NOT NULL,
+    previous_lifecycle TEXT,
+    lifecycle TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_transitions
+    ON knowledge_transitions(user_id, item_id, created_at);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
@@ -603,6 +784,7 @@ class Database:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
             conn.executescript(SCHEMA_V83)
+            conn.executescript(SCHEMA_V841)
         self._migrate()
 
     def _migrate(self) -> None:

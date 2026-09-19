@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 MAX_FOCUS = 2             # v8.3.1.2: the object a follow-up refers to
 MAX_MEMORIES = 6
 MAX_MISSIONS = 4          # v8.3.1 §4: missions are first-class context
+MAX_SKILLS = 2            # v8.4.1: validated operational guidance only
+MAX_PRINCIPLES = 2        # v8.4.1: validated higher-order guidance only
 MAX_WORLD = 6
 MAX_GOALS = 4
 MAX_COMMITMENTS = 4
@@ -132,6 +134,8 @@ class ContextBundle:
             # Missions next: a tracked objective is the strongest available
             # context, and it outranks a semantically similar memory (§4).
             "mission": "Active missions (tracked objectives, not memories)",
+            "principle": "Validated principles (guidance, never authority over the user)",
+            "skill": "Validated skills (context-checked operational guidance)",
             "memory": "Relevant long-term memories",
             "episodic": "Recent conversation",
             "goal": "Active goals",
@@ -191,6 +195,7 @@ class ContextBuilder:
     # ------------------------------------------------------------------ build
     def build(self, user_id: str, message: str, *,
               retrieved: list[dict[str, Any]] | None = None,
+              learned: dict[str, Any] | None = None,
               thread_id: str | None = None,
               correlation_id: str | None = None) -> ContextBundle:
         """
@@ -209,6 +214,12 @@ class ContextBuilder:
             # context there is for "what am I doing", and it must be present
             # whether or not any memory happens to be semantically similar.
             ("mission", lambda: self._missions(user_id, message)),
+            # V8.4.1 learned abstractions have already passed scope/current-world
+            # checks and canonical arbitration. The builder never queries twice.
+            ("principle", lambda: self._learned(
+                "principle", (learned or {}).get("principles"), MAX_PRINCIPLES)),
+            ("skill", lambda: self._learned(
+                "skill", (learned or {}).get("skills"), MAX_SKILLS)),
             ("memory", lambda: self._memories(user_id, retrieved)),
             ("episodic", lambda: self._episodic(user_id, thread_id)),
             ("goal", lambda: self._world_of_kind(user_id, "goal", MAX_GOALS)),
@@ -262,6 +273,36 @@ class ContextBuilder:
         return bundle
 
     # --------------------------------------------------------------- sections
+    @staticmethod
+    def _learned(kind: str, retrieval: dict[str, Any] | None,
+                 limit: int) -> list[ContextItem]:
+        """Render winners from canonical Skill/Principle arbitration."""
+        if not retrieval or not retrieval.get("winner"):
+            return []
+        candidates = [retrieval["winner"]]
+        items: list[ContextItem] = []
+        for candidate in candidates[:limit]:
+            item = candidate["item"]
+            if kind == "skill":
+                content = (f"SKILL: {item['statement']} Procedure: "
+                           + " -> ".join(item.get("procedure") or []))
+            else:
+                content = f"PRINCIPLE: {item['statement']}"
+            items.append(ContextItem(
+                kind=kind, id=item["id"], content=content,
+                source=str(item.get("source") or "learning-engine"),
+                relevance=float(candidate.get("score") or 0.0),
+                confidence=float(item.get("confidence") or 0.0),
+                reason=(f"Won learned-knowledge arbitration; reputation "
+                        f"{candidate.get('reputation')}; scope "
+                        f"{item.get('scope_kind')}."),
+                extra={"lifecycle": item.get("lifecycle"),
+                       "reputation": candidate.get("reputation"),
+                       "scope_kind": item.get("scope_kind"),
+                       "scope_value": item.get("scope_value"),
+                       "arbitration_id": retrieval["arbitration"]["id"]}))
+        return items
+
     def _memories(self, user_id: str,
                   retrieved: list[dict[str, Any]] | None) -> list[ContextItem]:
         """

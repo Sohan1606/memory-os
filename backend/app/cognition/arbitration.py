@@ -332,6 +332,153 @@ class ArbiterV2:
                          "does not strongly separate the candidates.")
         return " ".join(parts)
 
+    # ------------------------------------------------------- learned knowledge
+    def arbitrate_knowledge(
+        self, user_id: str, candidates: list[dict[str, Any]], *, query: str,
+        scope: dict[str, str] | None = None,
+        correlation_id: str | None = None, persist: bool = True,
+    ) -> dict[str, Any]:
+        """Arbitrate Skills/Principles through the canonical arbitration ledger.
+
+        Scope is a hard eligibility check. Reputation is deliberately weighted
+        strongly enough that a repeatedly unsuccessful exact match can lose to
+        a slightly less similar abstraction with a successful track record.
+        """
+        scope = scope or {}
+        q_tokens = _tokens(query)
+        scored: list[dict[str, Any]] = []
+        blocked: list[dict[str, Any]] = []
+        for raw in candidates:
+            item = dict(raw)
+            kind = str(item.get("kind") or "skill")
+            item_id = str(item.get("id") or "")
+            lifecycle = str(item.get("lifecycle") or "candidate")
+            rep = item.get("reputation") or {}
+            rep_label = str(rep.get("reputation") or "INSUFFICIENT EVIDENCE")
+            item_scope = str(item.get("scope_kind") or "user")
+            scope_value = str(item.get("scope_value") or "")
+
+            scope_match = 1.0
+            blocked_reason: str | None = None
+            if item_scope not in ("user", "global"):
+                current = str(scope.get(item_scope) or "")
+                scope_match = 1.0 if current and current == scope_value else 0.0
+                if not scope_match:
+                    blocked_reason = (
+                        f"Scope mismatch: requires {item_scope}={scope_value!r}.")
+            if lifecycle in ("candidate", "validating", "outdated",
+                             "contradicted", "retired"):
+                blocked_reason = f"Lifecycle {lifecycle!r} is not eligible for use."
+            world_match = max(0.0, min(1.0, float(item.get("world_match", 1.0))))
+            if item.get("preconditions") and not item.get("world_eligible", False):
+                blocked_reason = (
+                    "Current world/context does not support every recorded precondition.")
+
+            haystack = " ".join(str(item.get(k) or "") for k in (
+                "name", "statement", "trigger_text", "context_text",
+                "expected_outcome", "procedure_text"))
+            item_tokens = _tokens(haystack)
+            # Prefix features make simple morphology (fail/failed/failure,
+            # repeat/repeating) comparable without pretending this conservative
+            # deterministic retriever is a semantic model.
+            q_features = {token[:4] if len(token) >= 4 else token
+                          for token in q_tokens}
+            item_features = {token[:4] if len(token) >= 4 else token
+                             for token in item_tokens}
+            overlap = q_features & item_features
+            relevance = (len(overlap) / max(1, len(q_features))
+                         if q_features else 0.25)
+            relevance = min(1.0, relevance * 1.5)
+            if q_features and not overlap and blocked_reason is None:
+                blocked_reason = "No relevant trigger, context, procedure or outcome matched."
+            confidence = max(0.0, min(1.0, float(item.get("confidence") or 0.0)))
+            reputation_weight = REPUTATION_WEIGHT.get(rep_label, 0.5)
+            authority = AUTHORITY.get(str(item.get("source") or "inference"), 0.5)
+            specificity = min(1.0, len(item_tokens) / 30.0)
+            recency = 1.0 / (1.0 + _age_days(item.get("updated_at")) / 90.0)
+            failures = int(rep.get("failures") or 0)
+            failure_penalty = min(0.25, failures * 0.08)
+            lifecycle_penalty = 0.12 if lifecycle == "weakened" else 0.0
+            score = (0.24 * relevance + 0.15 * confidence
+                     + 0.25 * reputation_weight + 0.12 * scope_match
+                     + 0.07 * authority + 0.03 * specificity
+                     + 0.04 * recency + 0.10 * world_match
+                     - failure_penalty - lifecycle_penalty)
+            entry = {
+                "subject_kind": kind, "subject_id": item_id,
+                "item": item, "score": round(max(0.0, score), 4),
+                "confidence": round(confidence, 4),
+                "reputation": rep_label, "lifecycle": lifecycle,
+                "factors": {"relevance": round(relevance, 4),
+                            "confidence": round(confidence, 4),
+                            "reputation_weight": reputation_weight,
+                            "scope_match": scope_match,
+                            "current_world_match": round(world_match, 4),
+                            "authority": authority,
+                            "specificity": round(specificity, 4),
+                            "recency": round(recency, 4),
+                            "failure_penalty": failure_penalty,
+                            "lifecycle_penalty": lifecycle_penalty},
+                "blocked": bool(blocked_reason),
+                "blocked_reason": blocked_reason,
+            }
+            (blocked if blocked_reason else scored).append(entry)
+
+        scored.sort(key=lambda c: c["score"], reverse=True)
+        winner = scored[0] if scored else None
+        losers = scored[1:]
+        if winner is None:
+            uncertainty = 1.0
+            reason = ("No learned abstraction was eligible after lifecycle and "
+                      "scope checks.")
+        else:
+            margin = (winner["score"] - losers[0]["score"]) if losers else winner["score"]
+            uncertainty = max(0.0, min(1.0, 1.0 - margin * 2.0))
+            reason = (
+                f"Selected {winner['subject_kind']} {winner['subject_id']} with "
+                f"score {winner['score']:.3f}; relevance "
+                f"{winner['factors']['relevance']:.2f}, confidence "
+                f"{winner['confidence']:.2f}, reputation "
+                f"{winner['reputation']}, scope match "
+                f"{winner['factors']['scope_match']:.2f}.")
+            if losers:
+                reason += f" Closest alternative scored {losers[0]['score']:.3f}."
+        conflict = bool(winner and losers and
+                        winner["score"] - losers[0]["score"] < 0.08)
+        record_id = f"arb_{uuid.uuid4().hex[:12]}"
+        result = {"id": record_id, "user_id": user_id, "query": query,
+                  "winner": winner, "losers": losers, "blocked": blocked,
+                  "candidates": scored + blocked, "conflict": conflict,
+                  "uncertainty": round(uncertainty, 3), "reason": reason,
+                  "correlation_id": correlation_id, "created_at": _iso()}
+        if persist and (winner or blocked):
+            self.db.execute(
+                "INSERT INTO arbitration_records (id,user_id,query,winner_id,"
+                "candidates,conflict,uncertainty,reason,correlation_id,created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (record_id, user_id, query[:400],
+                 winner["subject_id"] if winner else None,
+                 json.dumps(result["candidates"], default=str), int(conflict),
+                 uncertainty, reason, correlation_id, result["created_at"]))
+            if winner:
+                self.bus.emit(
+                    user_id, "arbitration.resolved",
+                    f"Selected a relevant {winner['subject_kind']}",
+                    subject_kind=winner["subject_kind"],
+                    subject_id=winner["subject_id"],
+                    correlation_id=correlation_id,
+                    payload={"arbitration_id": record_id,
+                             "uncertainty": round(uncertainty, 3),
+                             "conflict": conflict, "reason": reason})
+            if conflict:
+                self.bus.emit(
+                    user_id, "arbitration.conflict",
+                    "Learned abstractions could not be cleanly separated",
+                    subject_kind="arbitration", subject_id=record_id,
+                    correlation_id=correlation_id,
+                    payload={"uncertainty": round(uncertainty, 3)})
+        return result
+
     # ---------------------------------------------------------------- storage
     def _persist(self, record: ArbitrationRecord) -> None:
         self.db.execute(
@@ -380,8 +527,20 @@ class ArbiterV2:
             " ORDER BY id DESC LIMIT ?", (user_id, limit))
         return [r for r in (self.get(row["id"]) for row in rows) if r]
 
-    def for_memory(self, memory_id: str, limit: int = 10) -> list[dict[str, Any]]:
+    def for_subject(self, user_id: str, subject_id: str,
+                    limit: int = 10) -> list[dict[str, Any]]:
+        """Arbitrations involving one subject, constrained to its user."""
+        rows = self.db.query(
+            "SELECT id FROM arbitration_records WHERE user_id=? AND "
+            "(winner_id=? OR candidates LIKE ?) ORDER BY id DESC LIMIT ?",
+            (user_id, subject_id, f'%"{subject_id}"%', limit))
+        return [r for r in (self.get(row["id"]) for row in rows) if r]
+
+    def for_memory(self, memory_id: str, limit: int = 10,
+                   user_id: str | None = None) -> list[dict[str, Any]]:
         """Every arbitration this memory took part in (won or lost)."""
+        if user_id is not None:
+            return self.for_subject(user_id, memory_id, limit)
         rows = self.db.query(
             "SELECT id FROM arbitration_records WHERE winner_id=? OR candidates"
             " LIKE ? ORDER BY id DESC LIMIT ?",

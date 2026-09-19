@@ -115,6 +115,28 @@ TIMEMACHINE = ("history.reconstructed", "history.unavailable")
 CONNECTOR = ("connector.declared", "connector.unavailable")
 RESEARCH = ("research.requested", "research.unavailable")
 
+# ------------------------------------------------------------- v8.4.1 events
+# First-class learning objects. Candidate creation, validation and promotion are
+# distinct events so no generated abstraction can become trusted silently.
+EXPERIENCE_V841 = (
+    "experience.created", "experience.enriched", "experience.validated",
+    "experience.activated", "experience.archived",
+)
+SKILL_V841 = (
+    "skill.candidate_created", "skill.validation_started",
+    "skill.validation_failed", "skill.promoted", "skill.retrieved",
+    "skill.used", "skill.reinforced", "skill.weakened",
+    "skill.contradicted", "skill.outdated", "skill.retired", "skill.rescoped",
+)
+PRINCIPLE_V841 = (
+    "principle.candidate_created", "principle.validation_started",
+    "principle.validation_failed", "principle.promoted", "principle.retrieved",
+    "principle.used", "principle.reinforced", "principle.weakened",
+    "principle.contradicted", "principle.outdated", "principle.retired",
+    "principle.rescoped",
+)
+LEARNING_V841 = ("learning.pattern_detected",)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -125,6 +147,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + PERCEPTION_V83 + WORLD_V83 + MISSION_V83 + ATTENTION + INTERVENTION_V83
     + OBSERVATION + OUTCOME_V83 + SIMULATION + BACKGROUND + MAINTENANCE_V83
     + TIMEMACHINE + CONNECTOR + RESEARCH
+    + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -309,6 +332,37 @@ LABELS: dict[str, str] = {
     "connector.unavailable": "A connector is not connected",
     "research.requested": "Research was requested",
     "research.unavailable": "No research provider is configured",
+    # --------------------------------------------------------- v8.4.1 labels
+    "experience.created": "Recorded an experience",
+    "experience.enriched": "Enriched an experience",
+    "experience.validated": "Validated an experience",
+    "experience.activated": "Made an experience available for learning",
+    "experience.archived": "Archived an experience",
+    "skill.candidate_created": "Created a skill candidate",
+    "skill.validation_started": "Started validating a skill",
+    "skill.validation_failed": "Skill evidence did not pass validation",
+    "skill.promoted": "Promoted a trusted skill",
+    "skill.retrieved": "Retrieved a relevant skill",
+    "skill.used": "A skill influenced a decision",
+    "skill.reinforced": "A skill worked and was reinforced",
+    "skill.weakened": "A skill performed poorly and was weakened",
+    "skill.contradicted": "Evidence contradicted a skill",
+    "skill.outdated": "Marked a skill outdated",
+    "skill.retired": "Retired a skill",
+    "skill.rescoped": "Changed where a skill applies",
+    "principle.candidate_created": "Created a principle candidate",
+    "principle.validation_started": "Started validating a principle",
+    "principle.validation_failed": "Principle evidence did not pass validation",
+    "principle.promoted": "Promoted a trusted principle",
+    "principle.retrieved": "Retrieved a relevant principle",
+    "principle.used": "A principle influenced a decision",
+    "principle.reinforced": "A principle worked and was reinforced",
+    "principle.weakened": "A principle performed poorly and was weakened",
+    "principle.contradicted": "Evidence contradicted a principle",
+    "principle.outdated": "Marked a principle outdated",
+    "principle.retired": "Retired a principle",
+    "principle.rescoped": "Changed where a principle applies",
+    "learning.pattern_detected": "Found an evidence-backed learning pattern",
 }
 
 
@@ -417,11 +471,17 @@ class EventBus:
         params.append(limit)
         return [self._row(r) for r in self.db.query(sql, params)]
 
-    def for_subject(self, subject_kind: str, subject_id: str) -> list[CognitiveEvent]:
-        """Full history of one object - powers 'What changed?' and memory history."""
-        return [self._row(r) for r in self.db.query(
-            "SELECT * FROM cognitive_events WHERE subject_kind = ? AND subject_id = ?"
-            " ORDER BY id ASC", (subject_kind, subject_id))]
+    def for_subject(self, subject_kind: str, subject_id: str, *,
+                    user_id: str | None = None) -> list[CognitiveEvent]:
+        """Full history of one object, optionally constrained to its owner."""
+        sql = ("SELECT * FROM cognitive_events WHERE subject_kind = ? "
+               "AND subject_id = ?")
+        params: list[Any] = [subject_kind, subject_id]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+        sql += " ORDER BY id ASC"
+        return [self._row(r) for r in self.db.query(sql, params)]
 
     def for_correlation(self, correlation_id: str) -> list[CognitiveEvent]:
         """Every event emitted during one conversational turn."""

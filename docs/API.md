@@ -380,3 +380,122 @@ Results carry `epistemic_status: "SIMULATED"`.
 | `GET` | `/api/maintenance/remedies` | The non-destructive remedy set |
 | `GET` | `/api/predictions/due` | Elapsed evaluation windows |
 | `POST` | `/api/predictions/{id}/unresolved` | Close honestly as `UNRESOLVED` |
+
+
+---
+
+## V8.4.1 — Experience → Skill → Principle
+
+All routes are additive. Every route resolves `user_id` through the existing
+namespace mechanism; an id owned by another namespace returns the same 404 as an
+unknown id.
+
+### Experiences
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/experiences` | List episodes; optional `lifecycle`, `pattern_key`, `limit` |
+| POST | `/api/experiences` | Create an observed episode from owned observation evidence |
+| GET | `/api/experiences/{id}` | Full episode and evidence |
+| POST | `/api/experiences/{id}/lifecycle` | Enrich, validate, activate or archive with an audited reason |
+| GET | `/api/experiences/{id}/provenance` | Evidence origins, provenance and transition history |
+
+Creation requires `situation` and a non-empty `evidence_ids` array. Each id must
+refer to a canonical observation in the same user namespace. `success` requires
+an `outcome`.
+
+```jsonc
+POST /api/experiences
+{
+  "situation": "deployment health check failed",
+  "evidence_ids": ["obs_..."],
+  "action": "inspect deployment logs before retrying",
+  "outcome": "the timeout was identified",
+  "success": true,
+  "pattern_key": "inspect_deployment_logs",
+  "scope_kind": "project",
+  "scope_value": "Atlas",
+  "source": "decision-outcome",
+  "provenance": {"decision_id": "decision_..."},
+  "user_id": "demo-user"
+}
+```
+
+### Skills and Principles
+
+The two kinds have parallel operational routes, but validation thresholds differ.
+
+| Method | Skill path | Principle path |
+|---|---|---|
+| List | `GET /api/skills` | `GET /api/principles` |
+| Create candidate | `POST /api/skills/candidates` | `POST /api/principles/candidates` |
+| Retrieve/arbitrate | `POST /api/skills/retrieve` | `POST /api/principles/retrieve` |
+| Inspect | `GET /api/skills/{id}` | `GET /api/principles/{id}` |
+| Explain | `GET /api/skills/{id}/explanation` | `GET /api/principles/{id}/explanation` |
+| Validate | `POST /api/skills/{id}/validate` | `POST /api/principles/{id}/validate` |
+| Promote | `POST /api/skills/{id}/promote` | `POST /api/principles/{id}/promote` |
+| Record use | `POST /api/skills/{id}/use` | `POST /api/principles/{id}/use` |
+| Correct | `POST /api/skills/{id}/correction` | `POST /api/principles/{id}/correction` |
+
+A validation PASS does not promote. Promotion is a separate operation and
+requires the latest persisted validation to pass.
+
+```jsonc
+POST /api/skills/retrieve
+{
+  "query": "The Atlas deployment failed",
+  "scope": {"project": "Atlas"},
+  "current_world": ["Kubernetes cluster is reachable"],
+  "limit": 5,
+  "user_id": "demo-user"
+}
+```
+
+The response carries `winner`, ranked `candidates`, `blocked` candidates and a
+persisted `arbitration` explanation. Retired, contradicted, outdated,
+out-of-scope or world-ineligible items cannot win.
+
+```jsonc
+POST /api/skills/{id}/correction
+{
+  "action": "rescope", // weaken | contradict | outdated | retire | forget | stop_using | rescope
+  "reason": "Only valid in Atlas production",
+  "scope_kind": "environment",
+  "scope_value": "Atlas production",
+  "evidence": ["explicit user correction"],
+  "user_id": "demo-user"
+}
+```
+
+`forget` and `stop_using` retire the item rather than erasing its evidence or
+audit trail.
+
+### Usage and outcomes
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/learning/usages` | Usage ledger; optional `item_id`, `pending`, `limit` |
+| POST | `/api/learning/usages/{usage_id}/outcome` | Resolve a real use and update reputation/lifecycle |
+| POST | `/api/decisions/{decision_id}/outcome` | Resolve a decision, create an Experience, and resolve learned influences |
+
+```jsonc
+POST /api/learning/usages/{usage_id}/outcome
+{
+  "verdict": "SUPPORTED", // SUPPORTED | CONTRADICTED | NEUTRAL | INSUFFICIENT EVIDENCE
+  "detail": "Logs exposed the timeout before another deployment",
+  "evidence": ["incident report ATLAS-41"],
+  "user_id": "demo-user"
+}
+```
+
+`SUPPORTED` or `CONTRADICTED` with no evidence is downgraded to
+`INSUFFICIENT EVIDENCE`; reputation does not move.
+
+### Learning maintenance
+
+`POST /api/learning/consolidate` retains the existing policy mining result and
+adds `experience_learning`. Maintenance may create and validate Skill/Principle
+candidates but reports `promoted: 0`; promotion is never automatic.
+
+`GET /api/learning` adds `experience_count` and aggregate `knowledge` lifecycle
+statistics.
