@@ -57,6 +57,16 @@ COGNITIVE TOOLS — these hold DIFFERENT kinds of object, not memories:
   from memory search.
 - CURRENT FOCUS: get_current_focus for "what am I working on", "what's
   pending", "where did we leave off".
+- LEARNED KNOWLEDGE: Experiences are observed episodes; Skills are actionable
+  learned procedures; Principles are higher-order guidance. Use list_learned,
+  list_experiences and inspect_learned to answer what was learned, why it is
+  used, what evidence supports it, and whether it is still valid. Confidence
+  (evidence support) and reputation (performance after use) are different.
+  Use correct_learned for explicit corrections. For "forget that skill" or
+  "stop using that principle", choose action="retire" and omit item_id when the
+  object is focused. Use weaken for reduced reliance, outdated for changed
+  circumstances, contradict when the user says it is false/invalid, and rescope
+  when it remains valid only in a narrower context. Never guess an id.
 - PREDICTIONS, ATTENTION, HISTORY, SIMULATION, EXPLAIN as described per tool.
 
 ACTING ON THE FOCUSED OBJECT:
@@ -96,9 +106,10 @@ TRUTHFULNESS — these rules override helpfulness:
   object, ask which one is meant. Never pick between candidates by guessing.
 - Never claim a state change unless a tool result confirmed it. After an
   action tool returns, answer from the state in that result: "UPDATED" means
-  it changed, "NO_CHANGE" means it was already in that state, and
-  "TERMINAL_STATE" means it is finished and was not reopened. If a tool
-  reports the state, never say the state is unknown.
+  it changed, "NO_CHANGE" means no new state change occurred, "INVALID" means
+  the requested operation was not applied, and "TERMINAL_STATE" means it is
+  finished and was not reopened. If a tool reports the state, never say the
+  state is unknown.
 - Explain using the evidence the tools return. Never describe your internal
   reasoning process; cite what is on record.
 
@@ -238,13 +249,19 @@ class MemoryAgent:
 
             if agent_self.context_builder is not None and last:
                 try:
+                    correlation_id = trace.correlation_id if trace else None
+                    learned = None
+                    cognition = getattr(agent_self, "cognition", None)
+                    if cognition is not None:
+                        learned = cognition.learned_for_turn(correlation_id)
                     bundle = agent_self.context_builder.build(
                         user_id, last,
                         retrieved=[{**r["memory"], "score": r["score"],
                                     "reasons": r.get("reasons", [])}
                                    for r in recalled],
+                        learned=learned,
                         thread_id=state["thread_id"],
-                        correlation_id=trace.correlation_id if trace else None)
+                        correlation_id=correlation_id)
                     agent_self._bundles[state.get("run_id", "")] = bundle
                     agent_self._emit(
                         trace, "CONTEXT_BUILD",

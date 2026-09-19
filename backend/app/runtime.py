@@ -75,7 +75,40 @@ class Runtime:
             self.memory.seed(self.settings.demo_user_id, SEED_MEMORIES)
 
     def reset_demo(self) -> int:
-        return self.memory.reset(self.settings.demo_user_id, SEED_MEMORIES)
+        """Restore demo memory and remove user-owned V8.4.1 learned state."""
+        user_id = self.settings.demo_user_id
+        # Reset predates the cognitive tables. New persisted product state must
+        # still honour its user-visible clean-slate contract. Delete dependants
+        # first; observation/world state retain their established V8.3 behavior.
+        delete_statements = (
+            "DELETE FROM knowledge_usages WHERE user_id = ?",
+            "DELETE FROM abstraction_reputation WHERE user_id = ?",
+            "DELETE FROM knowledge_validations WHERE user_id = ?",
+            "DELETE FROM knowledge_transitions WHERE user_id = ?",
+            "DELETE FROM knowledge_evidence WHERE user_id = ?",
+            "DELETE FROM knowledge_items WHERE user_id = ?",
+            "DELETE FROM experience_transitions WHERE user_id = ?",
+            "DELETE FROM experience_evidence WHERE user_id = ?",
+            "DELETE FROM experiences WHERE user_id = ?",
+        )
+        for statement in delete_statements:
+            self.db.execute(statement, (user_id,))
+        self.db.execute(
+            "DELETE FROM arbitration_records WHERE user_id=? AND ("
+            "candidates LIKE ? OR candidates LIKE ?)",
+            (user_id, '%\"subject_kind\": \"skill\"%',
+             '%\"subject_kind\": \"principle\"%'))
+        self.db.execute(
+            "DELETE FROM causal_links WHERE user_id=? AND (cause_kind IN "
+            "('experience','skill','principle','usage') OR effect_kind IN "
+            "('experience','skill','principle','usage'))", (user_id,))
+        self.db.execute(
+            "DELETE FROM cognitive_events WHERE user_id=? AND subject_kind IN "
+            "('experience','skill','principle','usage')", (user_id,))
+        self.db.execute(
+            "DELETE FROM focus_state WHERE user_id=? AND subject_kind IN "
+            "('experience','skill','principle')", (user_id,))
+        return self.memory.reset(user_id, SEED_MEMORIES)
 
     def health(self) -> dict:
         ps = self.provider.status()
@@ -108,7 +141,10 @@ class Runtime:
             # v8.2: capability truth and how each task would actually execute.
             "capabilities": self.cognition.router.report().as_dict(),
             "routing": self.cognition.router.routing_table(),
+            # `version` is the established V8.2 API-contract marker retained for
+            # backwards compatibility; `release` identifies the running slice.
             "version": "8.2",
+            "release": "8.4.1",
         }
 
     def close(self) -> None:

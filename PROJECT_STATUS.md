@@ -10,14 +10,18 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 
 | Item | Status | Evidence |
 |---|---|---|
-| Backend test suite | **PASS** | `pytest -m "not slow"` → **651 passed, 10 skipped, 7 deselected** in 280.1 s (V8.3.1 baseline of 599/10 fully preserved; V8.3.1.1 adds 28, V8.3.1.2 adds 24) |
+| Backend test suite | **PASS** | V8.4.1 full `python -m pytest` → **689 passed, 19 skipped** in 200.68 s; fast gate → **689 passed, 10 skipped, 9 deselected** in 198.88 s |
 | V8.3.1.1 mission action suite | **PASS** | `pytest tests/test_v8311_mission_actions.py` → **28 passed** in 4.75 s |
 | Browser QA — v8.3.1.1 (Playwright) | **PASS** | executed on this build: 5 routes × 1440×900 and 390×844 → **0 console errors, 0 page errors, 0 overflow, 0 HTTP ≥400, no error overlay**; five-turn create→pause→resume driven through the Workspace UI, final visible response reported the mission **active**, Observatory showed **ACTIVE**, activity trail showed `Tool selected: resume_mission` |
 | Clean install from ZIP | **PASS** | V8.3.1.2 ZIP (288 files, 1.9 MB) extracted to a fresh dir: no `.git`/`.venv`/`node_modules` and no local databases in the archive; fresh venv + `pytest -m "not slow"` → **651 passed, 10 skipped, 7 deselected** in 149.2 s; `npm ci`, typecheck, lint, `next build` (8/8 pages) — all from the extracted copy, exit 0 |
 | Frontend lint | **PASS** | `npm run lint` → `✔ No ESLint warnings or errors` |
 | Frontend typecheck | **PASS** | `npm run typecheck` → clean (strict + `noUnusedLocals`/`noUnusedParameters`) |
 | Frontend production build | **PASS** | `npm run build` → `✓ Compiled successfully`, 8/8 static pages |
-| Backend over real HTTP | **PASS** | uvicorn on `0.0.0.0:8000`; health, chat, search, CRUD exercised with curl |
+| V8.4.1 browser QA | **PASS** | `tests/v841_browser_qa.py` → **87/87** against real FastAPI/Next processes; 5 routes × desktop/mobile, no overflow, console errors, page errors, HTTP ≥400 or Next error overlay |
+| Observatory regression QA | **PASS** | `tests/observatory_qa.py` → **25/25**, including real API state, simulation isolation and mobile/reduced-motion checks |
+| JavaScript dependency audit | **PASS** | `npm audit` and `npm audit --omit=dev` → **0 vulnerabilities** after patched PostCSS/Sharp resolution |
+| Python dependency audit | **PASS WITH ACCEPTED RISK** | `python-multipart` upgraded to 0.0.32; four no-fix Chroma HTTP-server advisories remain but that server is not started/exposed by the supported embedded architecture; see `docs/V8.4.1-SECURITY.md` |
+| Backend over real HTTP | **PASS** | uvicorn on `0.0.0.0:8000`; V8.4.1 lifecycle, evidence, validation, promotion, usage, outcome, focus and inspection exercised through the Next same-origin proxy |
 | Frontend ↔ backend integration | **PASS** | `/api/*` rewrite verified end to end from the browser |
 | Browser QA — v7 (Playwright) | **PASS** | `tests/browser_qa.py` → 14/14, **0 console errors** |
 | Browser QA — v8 Observatory | **PASS** | `tests/observatory_qa.py` → **25/25**, 0 console errors |
@@ -30,7 +34,7 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 | V8.3 simulation isolation | **PASS** | world and mission rows byte-identical after a projection; commit refused without explicit confirmation AND changes |
 | V8.3 time machine | **PASS** | `HISTORY NOT AVAILABLE` before recorded history; state reconstructed only from `world_changes` / `mission_events` |
 | V8.3 degraded path | **PASS** | unreachable Ollama → missions, background, attention, simulation and documents all still function; `RESEARCH PROVIDER NOT CONFIGURED`, PDF `METADATA ONLY` |
-| Real Ollama model path | **NOT VERIFIABLE IN THIS ENVIRONMENT** | No Ollama server reachable. Model-path tests use a scripted model; real-model tests skip with an explicit reason rather than passing silently |
+| Real Ollama model path | **NOT VERIFIED IN THIS ENVIRONMENT** | No Ollama server reachable. All nine slow real-model tests skipped explicitly; the two V8.4.1 tests state that learned inspection/correction tool selection is NOT VERIFIED rather than substituting demo/scripted behavior |
 | Mobile layout (390 px) | **PASS** | 0 px horizontal overflow on landing and workspace |
 | Reduced motion | **PASS** | full content renders; sequence pins to a static frame |
 | No remote runtime assets | **PASS** | system fonts, locally generated frames, no CDN |
@@ -279,3 +283,33 @@ servers. The equivalent conversational path was additionally exercised
 end-to-end through the browser UI, where create → pause → resume produced a
 final visible response reporting the mission as **active**, backed by the real
 registry.
+
+
+## V8.4.1 — Experience → Skill → Principle
+
+| Capability | Status | Evidence / honest limitation |
+|---|---|---|
+| Experience persistence and lifecycle | **PASS** | Observation-backed creation, provenance and audited observed→enriched→validated→active/archive transitions |
+| Skill candidate detection | **PASS** | Three coherent successful Experiences with distinct origins; background never promotes |
+| Skill validation and promotion | **PASS** | Deterministic evidence/quality/consistency/structure/scope checks; separate explicit promotion |
+| Skill future influence | **PASS** | Scope/world-aware retrieval, persisted arbitration, context/decision usage, outcome and reputation loop |
+| Principle generalization | **PASS** | At least two trusted Skills, two patterns and four Experiences; one-Skill case rejected |
+| Principle future influence | **PASS** | Same retrieval/arbitration/use/outcome loop with stronger validation |
+| Confidence vs reputation | **PASS** | Separate persistence, scoring, API fields, model context and Observatory display |
+| Correction/refinement | **PASS** | Weaken, contradict, outdate, rescope, retire, forget and stop-use; audit retained |
+| Automatic failure retirement | **PASS** | Three attributed contradictions with no success → weakened → contradicted → retired |
+| Current-world/precondition check | **PASS** | Missing recorded precondition blocks before arbitration/use |
+| User isolation | **PASS** | Read, evidence-link, explanation, correction and causal traversal tests |
+| Causal provenance | **PASS** | Experience→Skill, Skill/Experience→Principle, abstraction→decision, outcome→abstraction |
+| Canonical event bus | **PASS** | Candidate, validation, promotion, use, outcome and lifecycle events in existing event vocabulary |
+| Conversation tools and focus | **PASS deterministically** | Real subsystem tools and stable-id focus tested; actual model selection **NOT VERIFIED** without Ollama |
+| Observatory | **PASS** | Real API data, empty/loading state, counts, lifecycle, confidence, reputation, evidence, validation, usage, provenance and focus |
+| Scenarios A–H | **PASS** | `test_v841_scenarios.py` → 8/8 |
+| V8.4.1 deterministic suites | **PASS** | core 17 + integration 13 + scenarios 8 = **38/38** |
+| Real-model V8.4.1 suite | **NOT VERIFIED** | 2/2 skipped with `ConnectError`: no Ollama server at `http://localhost:11434` |
+| Security static analysis | **PASS** | Bandit baseline and current both 0 high / 3 medium / 14 low; no net-new finding |
+| Browser gate | **PASS** | 87/87 V8.4.1 + 25/25 Observatory regression |
+
+Detailed architecture: `docs/V8.4.1.md` · acceptance audit:
+`docs/V8.4.1-AUDIT.md` · security: `docs/V8.4.1-SECURITY.md` · exact gates:
+`docs/V8.4.1-VERIFICATION.md`.

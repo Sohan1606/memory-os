@@ -384,3 +384,28 @@ run in which the model itself selects `resume_mission` for "Resume it." against
 a focused paused mission, ending `active`. Result recorded in
 `PROJECT_STATUS.md` with raw output in `docs/v8312-real-model-gate-evidence.txt`.
 A deterministic test passing is explicitly NOT sufficient for that claim.
+
+
+---
+
+## V8.4.1 verification suites
+
+| Suite | Purpose |
+|---|---|
+| `test_v841_learning_core.py` | Experience lifecycle/provenance, Skill/Principle evidence and validation, scope/world checks, arbitration, reputation, correction, isolation and background maintenance |
+| `test_v841_integration.py` | HTTP APIs, context and decision integration, canonical events, conversational tools, focus and evidence-backed explanations |
+| `test_v841_scenarios.py` | Eight end-to-end acceptance scenarios A–H, including restart persistence |
+| `test_v841_real_model.py` | Slow real-Ollama gate; the actual model must select learned inspection/correction tools and mutate/read canonical state |
+
+The real-model suite probes `/api/tags` before test execution and skips with an
+explicit **NOT VERIFIED** reason if Ollama or the requested model is absent. It
+does not substitute a scripted model, demo planner or direct tool call.
+
+The browser gate must use real frontend and backend processes, real API data and
+both desktop and mobile viewports. It checks the new Observatory panel, loading
+and empty states, lifecycle/evidence/confidence/reputation content, stable focus,
+no horizontal overflow, no HTTP errors, no console/page errors and no Next.js
+error overlay.
+
+Exact results for the release candidate are recorded in
+[V8.4.1-VERIFICATION.md](V8.4.1-VERIFICATION.md).

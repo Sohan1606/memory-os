@@ -17,9 +17,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 RELATIONS = ("influenced", "caused", "contradicted", "supported", "enabled",
-             "blocked", "informed")
-KINDS = ("memory", "decision", "action", "outcome", "prediction", "world",
-         "intent", "principle", "policy")
+             "blocked", "informed", "derived_from", "refined_by")
+KINDS = ("memory", "observation", "experience", "skill", "principle",
+         "decision", "action", "outcome", "usage", "prediction", "world",
+         "intent", "policy")
 
 
 def _now() -> str:
@@ -54,19 +55,30 @@ class CausalGraph:
                 "effect_kind": effect_kind, "effect_id": effect_id,
                 "relation": relation, "weight": weight}
 
-    def downstream(self, cause_kind: str, cause_id: str) -> list[dict[str, Any]]:
-        """What did this influence? (forward traversal)"""
-        return [dict(r) for r in self.db.query(
-            "SELECT * FROM causal_links WHERE cause_kind=? AND cause_id=?"
-            " ORDER BY id ASC", (cause_kind, cause_id))]
+    def downstream(self, cause_kind: str, cause_id: str, *,
+                   user_id: str | None = None) -> list[dict[str, Any]]:
+        """What did this influence? (forward traversal, optionally user-scoped)."""
+        sql = "SELECT * FROM causal_links WHERE cause_kind=? AND cause_id=?"
+        params: list[Any] = [cause_kind, cause_id]
+        if user_id is not None:
+            sql += " AND user_id=?"
+            params.append(user_id)
+        sql += " ORDER BY id ASC"
+        return [dict(r) for r in self.db.query(sql, params)]
 
-    def upstream(self, effect_kind: str, effect_id: str) -> list[dict[str, Any]]:
-        """What influenced this? (reverse traversal)"""
-        return [dict(r) for r in self.db.query(
-            "SELECT * FROM causal_links WHERE effect_kind=? AND effect_id=?"
-            " ORDER BY id ASC", (effect_kind, effect_id))]
+    def upstream(self, effect_kind: str, effect_id: str, *,
+                 user_id: str | None = None) -> list[dict[str, Any]]:
+        """What influenced this? (reverse traversal, optionally user-scoped)."""
+        sql = "SELECT * FROM causal_links WHERE effect_kind=? AND effect_id=?"
+        params: list[Any] = [effect_kind, effect_id]
+        if user_id is not None:
+            sql += " AND user_id=?"
+            params.append(user_id)
+        sql += " ORDER BY id ASC"
+        return [dict(r) for r in self.db.query(sql, params)]
 
-    def chain(self, kind: str, node_id: str, depth: int = 4) -> dict[str, Any]:
+    def chain(self, kind: str, node_id: str, depth: int = 4, *,
+              user_id: str | None = None) -> dict[str, Any]:
         """
         Walk the causal chain forward from a node, cycle-safe.
 
@@ -80,7 +92,7 @@ class CausalGraph:
                 return {"kind": k, "id": i, "effects": []}
             seen.add(key)
             effects = []
-            for link in self.downstream(k, i):
+            for link in self.downstream(k, i, user_id=user_id):
                 effects.append({
                     "relation": link["relation"], "weight": link["weight"],
                     "node": walk(link["effect_kind"], link["effect_id"], d - 1),
@@ -96,7 +108,7 @@ class CausalGraph:
         Every figure is a count of recorded links/events. Where there is no
         evidence we say so explicitly instead of inventing a number.
         """
-        links = self.downstream("memory", memory_id)
+        links = self.downstream("memory", memory_id, user_id=user_id)
         rep = self.db.query_one(
             "SELECT * FROM memory_reputation WHERE memory_id=?", (memory_id,))
 
@@ -133,6 +145,11 @@ class DecisionLog:
         self.db = db
         self.bus = bus
         self.causal = causal
+        # V8.4.1 collaborators are wired by the Cognition composition root after
+        # their construction, preserving backwards compatibility for unit users.
+        self.knowledge = None
+        self.observations = None
+        self.experiences = None
 
     def record(self, user_id: str, summary: str, *, context: str | None = None,
                alternatives: list[str] | None = None, chosen: str | None = None,
@@ -149,11 +166,23 @@ class DecisionLog:
                       subject_id=did, correlation_id=correlation_id,
                       payload={"alternatives": alternatives or [], "chosen": chosen})
 
-        # Wire the memories that informed this decision into the causal graph.
-        for memory_id in influenced_by or []:
-            self.causal.link(user_id, "memory", memory_id, "decision", did,
-                             relation="influenced", weight=0.6,
-                             correlation_id=correlation_id)
+        # Wire every real influence into the canonical causal graph. V8.4.1
+        # learned objects use their own usage ledger; all other ids preserve the
+        # original memory behaviour.
+        for subject_id in influenced_by or []:
+            learned = (self.knowledge.get(user_id, subject_id)
+                       if self.knowledge is not None else None)
+            if learned is not None:
+                self.knowledge.record_use(
+                    user_id, subject_id, influenced_kind="decision",
+                    influenced_id=did,
+                    how="Explicitly recorded as influencing this decision.",
+                    context={"summary": summary, "chosen": chosen}, weight=0.7,
+                    correlation_id=correlation_id)
+            else:
+                self.causal.link(user_id, "memory", subject_id, "decision", did,
+                                 relation="influenced", weight=0.6,
+                                 correlation_id=correlation_id)
         return self.get(did)  # type: ignore[return-value]
 
     def resolve(self, user_id: str, decision_id: str, actual_outcome: str, *,
@@ -219,6 +248,63 @@ class DecisionLog:
         outcome_id = f"o_{uuid.uuid4().hex[:12]}"
         self.causal.link(user_id, "decision", decision_id, "outcome", outcome_id,
                          relation="caused", weight=1.0, correlation_id=correlation_id)
+
+        # V8.4.1: a resolved decision is a meaningful observed episode. The
+        # caller's outcome report becomes a canonical Observation first, then an
+        # Experience linked to that evidence. No outcome text is fabricated.
+        attribution_evidence = list(evidence)
+        if self.observations is not None and self.experiences is not None:
+            try:
+                observed = self.observations.record(
+                    user_id, actual_outcome, source="outcome",
+                    origin=f"decision:{decision_id}", epistemic_status="OBSERVED",
+                    confidence=0.9, subject_kind="decision",
+                    subject_id=decision_id, correlation_id=correlation_id,
+                    provenance={"positive": positive,
+                                "regret_evidence": evidence})
+                attribution_evidence.append(observed["id"])
+                exp = self.experiences.create(
+                    user_id, str(row["summary"]), evidence_ids=[observed["id"]],
+                    action=row["chosen"], outcome=actual_outcome, success=positive,
+                    context={"decision_id": decision_id,
+                             "alternatives": str(row["alternatives"] or "").split("\n")},
+                    regret=regret, source="decision-outcome",
+                    provenance={"decision_id": decision_id,
+                                "outcome_id": outcome_id},
+                    correlation_id=correlation_id,
+                    pattern_key=(str(row["chosen"] or "").strip().lower() or None))
+                self.experiences.enrich(
+                    user_id, exp["id"], reason="Decision and outcome structure attached.",
+                    correlation_id=correlation_id)
+                self.experiences.validate(
+                    user_id, exp["id"], correlation_id=correlation_id)
+                self.experiences.activate(
+                    user_id, exp["id"], correlation_id=correlation_id)
+                self.causal.link(
+                    user_id, "decision", decision_id, "experience", exp["id"],
+                    relation="caused", weight=1.0, correlation_id=correlation_id)
+            except (ValueError, KeyError):
+                # The decision outcome remains valid even if episode enrichment
+                # lacks enough structure for an Experience.
+                pass
+
+        # Attribute the same observed outcome to learned knowledge that actually
+        # influenced this decision. Pending usage is not success by default; it
+        # moves only now that the caller supplied an outcome.
+        if self.knowledge is not None:
+            for usage in self.knowledge.usages(
+                    user_id, pending=True, limit=200):
+                if (usage["influenced_kind"] == "decision"
+                        and usage["influenced_id"] == decision_id):
+                    try:
+                        self.knowledge.record_outcome(
+                            user_id, usage["id"],
+                            verdict="SUPPORTED" if positive else "CONTRADICTED",
+                            detail=actual_outcome,
+                            evidence=attribution_evidence,
+                            correlation_id=correlation_id)
+                    except (ValueError, KeyError):
+                        continue
         result = self.get(decision_id)
         if result is not None:
             result["regret_basis"] = regret_note

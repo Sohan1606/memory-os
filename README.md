@@ -1,15 +1,20 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.3.1 — Conversational Cognition.**
+**MEMORY//OS V8.4.1 — Experience → Skill → Principle.**
 
 A continuously maintained personal cognitive environment, operated through
-conversation. It remembers, and it can tell you *why* it believed something,
-*what that belief changed*, *whether it turned out to be right* — and what it
-has been quietly keeping track of since you last spoke.
+conversation. It remembers, learns evidence-backed Skills from meaningful
+Experience, generalizes across multiple Skills into Principles, and can tell you
+*why* it trusts them, *what they changed*, and *whether using them worked*.
 
-As of V8.3.1 you reach all of that by simply talking. Ask "what am I working
-on?" and the mission registry answers; say "pause that" and the right mission
-pauses. You never need to know an endpoint, a table or a panel name.
+V8.4.1 makes conversation the primary control surface. With a configured
+tool-capable model, questions such as "what have you learned?" are routed to
+real inspection tools; actual model selection is explicitly **NOT VERIFIED** in
+the release environment because Ollama was unavailable. The focused command
+"forget that skill" is also handled deterministically and retires the
+abstraction without losing its audit trail. Users do not need to maintain table
+rows or object ids.
+
 A local-first agent with persistent long-term memory — LangGraph, LangChain
 tools, ChromaDB and local embeddings — presented through a cinematic dark
 product interface.
@@ -37,6 +42,27 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V8.4.1
+
+Meaningful observed episodes are now first-class **Experiences**. Repeated,
+coherent, evidence-backed Experiences can become validated **Skills**; multiple
+trusted Skills from distinct patterns can support a higher-order **Principle**.
+Trusted Skills and Principles participate in scope-aware retrieval, persisted
+arbitration and real decision influence; Skill preconditions are additionally
+checked against explicit current-world state. Their usage
+outcomes update a reputation that remains separate from confidence. Corrections
+can weaken, contradict, rescope, retire or stop using an abstraction without
+erasing its provenance or audit trail.
+
+Conversation has model-selectable inspection/correction tools, while the
+Observatory displays lifecycle, evidence, confidence, reputation, validation,
+usage and provenance from real APIs. Background cognition may detect and
+validate candidates but never promotes them.
+
+Full detail: [`docs/V8.4.1.md`](docs/V8.4.1.md) · implementation audit:
+[`docs/V8.4.1-AUDIT.md`](docs/V8.4.1-AUDIT.md) · verification:
+[`docs/V8.4.1-VERIFICATION.md`](docs/V8.4.1-VERIFICATION.md).
 
 ## New in V8.3.1
 
@@ -99,9 +125,15 @@ log are fully real in demo mode** — only free-form model tool choice is absent
 
 ## Verified results
 
-- Backend tests: **412 passed, 10 skipped** (V8.1 baseline of 179/8 fully preserved)
-- `npm run lint` — clean · `npx tsc --noEmit` — clean · `npm run build` — 6/6 pages
-- Browser QA: desktop 1440×900 + mobile 390×844, 5 pages each, zero console errors
+- Backend full suite: **689 passed, 19 skipped**; the two V8.4.1
+  real-model tests are explicit skips because no Ollama server was reachable
+- V8.4.1 deterministic core/integration/scenarios: **38/38 passed**
+- `npm run lint` — clean · `npm run typecheck` — clean · `npm run build` — 8/8 static pages
+- Browser QA: **87/87** V8.4.1 assertions plus **25/25** Observatory
+  regression assertions; desktop 1440×900 + mobile 390×844, zero console/page/HTTP errors
+- Dependency audit: npm 0 vulnerabilities; Python's fixable multipart
+  advisories resolved, with four no-fix Chroma server advisories documented as
+  unreachable in the supported embedded architecture
 - Restart persistence: memories, influences, arbitrations, intent transitions,
   execution traces and focus all survive a backend restart
 - `"what do you remember about my projects"` → 4 PROJECT memories (0.45/0.41/0.40/0.31)
@@ -131,6 +163,9 @@ hardcoded datasets and no fake buttons.
 | [`docs/LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Ollama install, model choice, health check, troubleshooting |
 | [`docs/V8.1.md`](docs/V8.1.md) | V8 → V8.1: real agent, extraction, perception, memory health |
 | [`docs/V8.2.md`](docs/V8.2.md) | V8.1 → V8.2: the cognitive core — routing, execution tracing, the causal chain |
+| [`docs/V8.4.1.md`](docs/V8.4.1.md) | Evidence-backed Experience → Skill → Principle architecture and behavior |
+| [`docs/V8.4.1-AUDIT.md`](docs/V8.4.1-AUDIT.md) | 38-area and scenarios A–H acceptance audit |
+| [`docs/V8.4.1-VERIFICATION.md`](docs/V8.4.1-VERIFICATION.md) | Exact backend, frontend, browser, security and artifact gates |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test coverage, verified results, bugs caught |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Visual language, motion, the scroll sequence |
 | [`PROJECT_STATUS.md`](PROJECT_STATUS.md) | Honest status matrix and limitations |

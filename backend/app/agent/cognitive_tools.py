@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,13 @@ NO_MISSIONS = "NO_MISSIONS_RECORDED"
 NO_NEXT_STEP = "NO_NEXT_STEP_RECORDED"
 NOT_FOUND = "NOT_FOUND"
 AMBIGUOUS = "AMBIGUOUS_REFERENCE"
+
+# Canonical actions exposed to the model. KnowledgeStore.correct() remains the
+# mutation authority and deliberately retains its compatibility aliases for API
+# callers and older persisted integrations.
+CorrectionAction = Literal[
+    "retire", "weaken", "outdated", "contradict", "rescope"]
+CORRECTION_ACTIONS = ("retire", "weaken", "outdated", "contradict", "rescope")
 
 
 def _j(payload: Any) -> str:
@@ -162,6 +169,25 @@ def build_cognitive_tools(
         if mission is None:
             return None, f"{NOT_FOUND}: the focused mission no longer exists."
         return mission, None
+
+    def _resolve_knowledge(item_id: str | None,
+                           kind: str | None = None) -> tuple[dict[str, Any] | None, str | None]:
+        """Resolve a Skill/Principle by id or stable conversational focus."""
+        if item_id:
+            item = cognition.knowledge.get(user_id, item_id)
+            if item is None or (kind and item["kind"] != kind):
+                return None, f"{NOT_FOUND}: no matching learned object {item_id}."
+            return item, None
+        focused = [f for f in cognition.focus.current(user_id, session_id=session)
+                   if f["subject_kind"] in ("skill", "principle")
+                   and (not kind or f["subject_kind"] == kind)]
+        if len(focused) != 1:
+            return None, (f"{AMBIGUOUS}: no single Skill or Principle is in "
+                          "focus. List them, then ask which one the user means.")
+        item = cognition.knowledge.get(user_id, focused[0]["subject_id"])
+        if item is None:
+            return None, f"{NOT_FOUND}: the focused learned object no longer exists."
+        return item, None
 
     # ===================================================== MISSION (§2/§7)
     def list_missions(open_only: bool | None = True) -> str:
@@ -585,6 +611,119 @@ def build_cognitive_tools(
                    "note": ("SIMULATED — a projection, not a fact, and nothing "
                             "was changed. Present it as a what-if.")})
 
+    # =================================== EXPERIENCE / SKILL / PRINCIPLE (V8.4.1)
+    def list_learned(kind: str = "all") -> str:
+        """List evidence-backed Skills and/or Principles."""
+        requested = (kind or "all").lower().rstrip("s")
+        if requested not in ("all", "skill", "principle"):
+            return _j({"status": "INVALID", "detail":
+                       "kind must be all, skill, or principle"})
+        items = cognition.knowledge.list(
+            user_id, kind=None if requested == "all" else requested, limit=30)
+        emit("LIST_LEARNED", {"kind": requested, "count": len(items)})
+        if not items:
+            return _j({"status": "NO_LEARNED_KNOWLEDGE_RECORDED",
+                       "detail": "No matching Skills or Principles are recorded."})
+        if len(items) == 1:
+            _focus(items[0]["kind"], items[0]["id"], items[0]["name"])
+        return _j({"status": "OK", "items": [{
+            "id": i["id"], "kind": i["kind"], "name": i["name"],
+            "statement": i["statement"], "lifecycle": i["lifecycle"],
+            "confidence": i["confidence"],
+            "reputation": i["reputation"]["reputation"],
+            "scope": {"kind": i["scope_kind"], "value": i["scope_value"]},
+            "supporting_evidence": i["supporting_evidence_count"],
+            "counterexamples": i["counterexample_count"],
+        } for i in items]})
+
+    def list_experiences() -> str:
+        """List meaningful observed episodes available to learning."""
+        items = cognition.experiences.list(user_id, limit=30)
+        emit("LIST_EXPERIENCES", {"count": len(items)})
+        if not items:
+            return _j({"status": "NO_EXPERIENCES_RECORDED"})
+        return _j({"status": "OK", "experiences": [{
+            "id": e["id"], "situation": e["situation"],
+            "action": e["action"], "outcome": e["outcome"],
+            "success": e["success"], "lifecycle": e["lifecycle"],
+            "evidence_count": e["evidence_count"],
+            "scope": {"kind": e["scope_kind"], "value": e["scope_value"]},
+        } for e in items]})
+
+    def inspect_learned(item_id: str = "") -> str:
+        """Explain how a focused Skill/Principle was learned and how it performs."""
+        item, error = _resolve_knowledge(item_id or None)
+        if error:
+            return _j({"status": error.split(":")[0], "detail": error})
+        _focus(item["kind"], item["id"], item["name"])
+        report = cognition.knowledge.explain(user_id, item["id"])
+        emit("INSPECT_LEARNED", {"item_id": item["id"], "kind": item["kind"]})
+        return _j({"status": "OK", "item": {
+            "id": item["id"], "kind": item["kind"], "name": item["name"],
+            "statement": item["statement"], "lifecycle": item["lifecycle"],
+            "confidence": item["confidence"],
+            "reputation": item["reputation"],
+            "scope": {"kind": item["scope_kind"], "value": item["scope_value"]},
+            "procedure": item["procedure"],
+            "expected_outcome": item["expected_outcome"],
+        }, "summary": report["summary"],
+            "supporting_evidence": report["supporting_evidence"],
+            "counterexamples": report["counterexamples"],
+            "validation_history": report["validation_history"],
+            "lifecycle_history": report["lifecycle_history"],
+            "note": report["note"]})
+
+    def correct_learned(action: CorrectionAction, reason: str,
+                        item_id: str = "", scope_kind: str = "",
+                        scope_value: str = "") -> str:
+        """Apply one canonical correction to focused learned knowledge."""
+        normalized_action = str(action).lower().strip()
+        item, error = _resolve_knowledge(item_id or None)
+        if error:
+            return _j({"status": error.split(":")[0], "detail": error})
+        previous_lifecycle = str(item["lifecycle"])
+        before = (previous_lifecycle, float(item["confidence"]),
+                  item["scope_kind"], item.get("scope_value"),
+                  item["reputation"].get("evidence_contradictions", 0))
+        try:
+            # KnowledgeStore.correct() is the sole mutation path. The tool
+            # translates no lifecycle state and fabricates no successful result.
+            updated = cognition.knowledge.correct(
+                user_id, item["id"], action=normalized_action, reason=reason,
+                scope_kind=scope_kind or None, scope_value=scope_value or None,
+                evidence=["Explicit user correction in conversation"],
+                correlation_id=correlation_id)
+        except ValueError as exc:
+            return _j({"status": "INVALID", "action": normalized_action,
+                       "previous_lifecycle": previous_lifecycle,
+                       "resulting_lifecycle": previous_lifecycle,
+                       "detail": str(exc)})
+        after = (str(updated["lifecycle"]), float(updated["confidence"]),
+                 updated["scope_kind"], updated.get("scope_value"),
+                 updated["reputation"].get("evidence_contradictions", 0))
+        status = "UPDATED" if after != before else "NO_CHANGE"
+        _focus(updated["kind"], updated["id"], updated["name"])
+        emit("CORRECT_LEARNED", {
+            "item_id": updated["id"], "action": normalized_action,
+            "status": status, "previous_lifecycle": previous_lifecycle,
+            "resulting_lifecycle": updated["lifecycle"]})
+        detail = (
+            "The correction changed canonical learned knowledge; future retrieval "
+            "will respect the resulting lifecycle and scope."
+            if status == "UPDATED" else
+            "No canonical lifecycle, confidence, reputation, or scope changed; "
+            "do not describe this as a newly completed correction.")
+        return _j({"status": status, "action": normalized_action,
+                   "id": updated["id"], "kind": updated["kind"],
+                   "name": updated["name"],
+                   "previous_lifecycle": previous_lifecycle,
+                   "resulting_lifecycle": updated["lifecycle"],
+                   # Keep the established key for compatible consumers.
+                   "lifecycle": updated["lifecycle"],
+                   "scope": {"kind": updated["scope_kind"],
+                             "value": updated["scope_value"]},
+                   "detail": detail})
+
     # ============================================== EXPLANATION (§9)
     def explain(question_kind: str = "why") -> str:
         """
@@ -637,6 +776,19 @@ def build_cognitive_tools(
                         "when": h["created_at"]}
                         for h in cognition.missions.history(
                             user_id, mission["id"], limit=5)]
+            elif item["subject_kind"] in ("skill", "principle"):
+                learned = cognition.knowledge.explain(user_id, item["subject_id"])
+                entry["learned"] = {
+                    "summary": learned["summary"],
+                    "supporting_evidence": learned["supporting_evidence"],
+                    "counterexamples": learned["counterexamples"],
+                    "validation_history": learned["validation_history"],
+                    "lifecycle_history": learned["lifecycle_history"],
+                    "note": learned["note"],
+                }
+            elif item["subject_kind"] == "experience":
+                entry["experience"] = cognition.experiences.provenance(
+                    user_id, item["subject_id"])
             obs = cognition.observations.evidence_for(
                 user_id, item["subject_kind"], item["subject_id"])
             entry["evidence_count"] = obs["total"]
@@ -745,6 +897,43 @@ def build_cognitive_tools(
         question_kind: str = Field(default="why",
                                    description="why | why_now | what_changed")
 
+    class LearnedListArgs(_NullTolerant):
+        kind: str = Field(default="all", description="all | skill | principle")
+
+    class LearnedIdArgs(_NullTolerant):
+        item_id: str = Field(default="", description=(
+            "Stable Skill/Principle id. Omit to use the focused learned object."))
+
+    class CorrectLearnedArgs(_NullTolerant):
+        action: CorrectionAction = Field(description=(
+            "Choose exactly one correction operation. retire = forget completely "
+            "or stop using it, excluding it from future retrieval; weaken = it "
+            "may still help but should be trusted/recommended less; outdated = "
+            "it is no longer current because circumstances changed; contradict = "
+            "the user says it is false or invalid; rescope = it remains valid "
+            "only in a narrower scope and requires scope_kind (and scope_value "
+            "except for user/global)."))
+        reason: str = Field(description=(
+            "The user's stated correction, recorded in the audit trail."))
+        item_id: str = Field(default="", description=(
+            "Stable Skill/Principle id. Omit it (or send null/empty) when a "
+            "Skill or Principle is focused: the tool resolves that exact focused "
+            "object. Never invent or ask the user for an id already in focus."))
+        scope_kind: str = Field(default="", description=(
+            "Only for action=rescope: user | task | project | domain | "
+            "environment | global."))
+        scope_value: str = Field(default="", description=(
+            "Only for action=rescope; required for task/project/domain/environment."))
+
+    def _invalid_correction_args(_error: Exception) -> str:
+        # Literal validation normally prevents a bad model call. If a provider
+        # nevertheless emits unsupported arguments, expose INVALID as a tool
+        # payload rather than a ValidationError/TOOL_FAILED or superficial success.
+        return _j({
+            "status": "INVALID", "action": None,
+            "detail": ("Unsupported correction arguments. action must be exactly "
+                       + ", ".join(CORRECTION_ACTIONS) + ".")})
+
     return [
         StructuredTool.from_function(
             func=list_missions, name="list_missions",
@@ -838,6 +1027,44 @@ def build_cognitive_tools(
                         "commitments and open threads. Use for 'what am I "
                         "working on', 'what's pending', 'where did we leave off'.",
             args_schema=NoArgs),
+        StructuredTool.from_function(
+            func=list_learned, name="list_learned",
+            description="List actual learned Skills and Principles with lifecycle, "
+                        "confidence, reputation, scope and evidence counts. Use "
+                        "for 'what skills have you learned?' or 'what principles "
+                        "do you have?'.",
+            args_schema=LearnedListArgs),
+        StructuredTool.from_function(
+            func=list_experiences, name="list_experiences",
+            description="List evidence-backed Experiences the system can learn "
+                        "from. Use for 'what experiences support that?' or 'what "
+                        "have you learned from?'.",
+            args_schema=NoArgs),
+        StructuredTool.from_function(
+            func=inspect_learned, name="inspect_learned",
+            description="Explain a Skill or Principle from recorded evidence, "
+                        "provenance, validation, confidence, reputation and "
+                        "lifecycle. Use for 'how did you learn this?', 'why do "
+                        "you use that skill?', and 'is that still valid?'. Never "
+                        "invent reasoning beyond the returned evidence.",
+            args_schema=LearnedIdArgs),
+        StructuredTool.from_function(
+            func=correct_learned, name="correct_learned",
+            description=(
+                "Apply an explicit user correction to one Skill or Principle. "
+                "Choose action=retire when the user says forget it or stop using "
+                "it; retirement removes it from future retrieval. Choose weaken "
+                "when it may still help but deserves less reliance, outdated when "
+                "changed circumstances made it no longer current, contradict when "
+                "the user says it is false/invalid, and rescope when it remains "
+                "valid only in a narrower context. For rescope supply scope_kind "
+                "and any required scope_value. When a Skill or Principle is "
+                "focused, OMIT item_id: this tool resolves the exact focused "
+                "object, so never invent or request a database id. Return status "
+                "must be honored: UPDATED changed canonical state; INVALID or "
+                "NO_CHANGE must not be described as a successful new change."),
+            args_schema=CorrectLearnedArgs,
+            handle_validation_error=_invalid_correction_args),
         StructuredTool.from_function(
             func=get_predictions, name="get_predictions",
             description="Open predictions with their evidence. Predictions are "

@@ -69,13 +69,14 @@ class BackgroundCognition:
     """
 
     def __init__(self, db, bus, *, world_v2=None, missions=None,
-                 maintenance=None, predictions=None) -> None:
+                 maintenance=None, predictions=None, learning=None) -> None:
         self.db = db
         self.bus = bus
         self.world_v2 = world_v2
         self.missions = missions
         self.maintenance = maintenance
         self.predictions = predictions
+        self.learning = learning
         self._state: dict[str, str] = {}
         self._last_run: dict[str, float] = {}
         self._lock = threading.Lock()
@@ -203,6 +204,8 @@ class BackgroundCognition:
             tasks.append(("prediction_windows", self._task_prediction_windows))
         if self.maintenance is not None:
             tasks.append(("memory_health", self._task_memory_health))
+        if self.learning is not None:
+            tasks.append(("learning_patterns", self._task_learning_patterns))
         return tasks
 
     def _task_world_staleness(self, user_id: str,
@@ -264,6 +267,14 @@ class BackgroundCognition:
             return {"findings": [], "changes": 0}
         return {"findings": report.get("findings", []),
                 "changes": int(report.get("changes", 0))}
+
+    def _task_learning_patterns(self, user_id: str,
+                                correlation_id: str | None) -> dict[str, Any]:
+        """Create/validate evidence-backed candidates; never promote them."""
+        result = self.learning.maintain(
+            user_id, correlation_id=correlation_id)
+        return {"findings": result.get("findings", []),
+                "changes": int(result.get("changes", 0))}
 
     # -------------------------------------------------------------- records
     def _skip(self, user_id: str, trigger: str, reason: str,

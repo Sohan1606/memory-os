@@ -282,3 +282,111 @@ class AttentionReactionRequest(BaseModel):
 class ResearchRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
     user_id: str | None = None
+
+
+# ----------------------------------------------------------- v8.4.1 requests
+class ExperienceCreateRequest(BaseModel):
+    situation: str = Field(min_length=3, max_length=1000)
+    evidence_ids: list[str] = Field(min_length=1)
+    action: str | None = Field(default=None, max_length=1000)
+    outcome: str | None = Field(default=None, max_length=2000)
+    success: bool | None = None
+    observation: str | None = Field(default=None, max_length=2000)
+    context: dict[str, Any] = Field(default_factory=dict)
+    intent: str | None = Field(default=None, max_length=500)
+    need: str | None = Field(default=None, max_length=500)
+    consequences: list[str] = Field(default_factory=list)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    scope_kind: str = Field(default="user", max_length=30)
+    scope_value: str | None = Field(default=None, max_length=200)
+    pattern_key: str | None = Field(default=None, max_length=160)
+    source: str = Field(default="conversation", max_length=80)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    thread_id: str | None = Field(default=None, max_length=100)
+    user_id: str | None = None
+
+
+class ExperienceLifecycleRequest(BaseModel):
+    lifecycle: str = Field(max_length=30)
+    reason: str = Field(min_length=3, max_length=500)
+    evidence_ids: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class SkillCandidateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    statement: str = Field(min_length=3, max_length=1000)
+    trigger: str = Field(min_length=3, max_length=500)
+    procedure: list[str] = Field(min_length=1)
+    expected_outcome: str = Field(min_length=3, max_length=1000)
+    supporting_experience_ids: list[str] = Field(min_length=1)
+    counterexample_experience_ids: list[str] = Field(default_factory=list)
+    context: list[str] = Field(default_factory=list)
+    preconditions: list[str] = Field(default_factory=list)
+    scope_kind: str = Field(default="user", max_length=30)
+    scope_value: str | None = Field(default=None, max_length=200)
+    pattern_key: str | None = Field(default=None, max_length=160)
+    generalization_hint: str | None = Field(default=None, max_length=1000)
+    source: str = Field(default="learning-engine", max_length=80)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    user_id: str | None = None
+
+
+class PrincipleCandidateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=200)
+    statement: str = Field(min_length=3, max_length=1000)
+    supporting_skill_ids: list[str] = Field(min_length=1)
+    supporting_experience_ids: list[str] = Field(default_factory=list)
+    counterexample_experience_ids: list[str] = Field(default_factory=list)
+    application: list[str] = Field(default_factory=list)
+    expected_outcome: str = Field(default="", max_length=1000)
+    scope_kind: str = Field(default="user", max_length=30)
+    scope_value: str | None = Field(default=None, max_length=200)
+    pattern_key: str | None = Field(default=None, max_length=160)
+    generality: float = Field(default=0.6, ge=0.0, le=1.0)
+    source: str = Field(default="learning-engine", max_length=80)
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    user_id: str | None = None
+
+
+class KnowledgeRetrievalRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    scope: dict[str, str] = Field(default_factory=dict)
+    current_world: list[str] = Field(default_factory=list)
+    limit: int = Field(default=5, ge=1, le=20)
+    user_id: str | None = None
+
+
+class KnowledgeUseRequest(BaseModel):
+    influenced_kind: str = Field(default="decision", max_length=30)
+    influenced_id: str = Field(min_length=1, max_length=120)
+    how: str = Field(min_length=3, max_length=500)
+    context: dict[str, Any] = Field(default_factory=dict)
+    weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    arbitration_id: str | None = Field(default=None, max_length=100)
+    user_id: str | None = None
+
+
+class KnowledgeOutcomeRequest(BaseModel):
+    verdict: str = Field(max_length=40)
+    detail: str = Field(min_length=1, max_length=1000)
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class KnowledgeCorrectionRequest(BaseModel):
+    action: str = Field(max_length=30)
+    reason: str = Field(min_length=3, max_length=500)
+    scope_kind: str | None = Field(default=None, max_length=30)
+    scope_value: str | None = Field(default=None, max_length=200)
+    evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None
+
+
+class DecisionOutcomeRequest(BaseModel):
+    actual_outcome: str = Field(min_length=1, max_length=2000)
+    positive: bool
+    tradeoffs: str | None = Field(default=None, max_length=1000)
+    lesson: str | None = Field(default=None, max_length=1000)
+    regret_evidence: list[str] = Field(default_factory=list)
+    user_id: str | None = None

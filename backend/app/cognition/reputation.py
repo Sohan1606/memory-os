@@ -18,6 +18,7 @@ LIFECYCLE = ("candidate", "validating", "trusted", "reinforced", "uncertain",
 
 REPUTATION_LABELS = ("TRUSTED", "RELIABLE", "CONTEXTUAL", "UNCERTAIN",
                      "OUTDATED", "CONTRADICTED", "INSUFFICIENT EVIDENCE")
+ABSTRACTION_KINDS = ("skill", "principle")
 
 
 def _now() -> str:
@@ -158,6 +159,111 @@ class ReputationStore:
                       subject_kind="memory", subject_id=memory_id,
                       correlation_id=correlation_id)
         return self.get(user_id, memory_id)
+
+    # ---------------------------------------------------- learned knowledge
+    # V8.4.1 extends this canonical reputation subsystem to Skills and
+    # Principles. Confidence remains on the learned object (evidence support);
+    # this table records only how actual USE performed.
+    def _ensure_subject(self, user_id: str, kind: str, item_id: str) -> None:
+        if kind not in ABSTRACTION_KINDS:
+            raise ValueError(f"Unsupported reputation subject: {kind!r}")
+        row = self.db.query_one(
+            "SELECT item_id FROM abstraction_reputation WHERE item_id=?"
+            " AND user_id=? AND item_kind=?", (item_id, user_id, kind))
+        if row is None:
+            self.db.execute(
+                "INSERT INTO abstraction_reputation (item_id,user_id,item_kind,"
+                "updated_at) VALUES (?,?,?,?)", (item_id, user_id, kind, _now()))
+
+    def _bump_subject(self, user_id: str, kind: str, item_id: str,
+                      column: str, by: int = 1) -> None:
+        statements = {
+            "retrievals": "UPDATE abstraction_reputation SET retrievals="
+                          "retrievals+?,updated_at=? WHERE item_id=? AND user_id=?"
+                          " AND item_kind=?",
+            "usages": "UPDATE abstraction_reputation SET usages=usages+?,"
+                      "updated_at=? WHERE item_id=? AND user_id=? AND item_kind=?",
+            "successes": "UPDATE abstraction_reputation SET successes=successes+?,"
+                         "updated_at=? WHERE item_id=? AND user_id=? AND item_kind=?",
+            "failures": "UPDATE abstraction_reputation SET failures=failures+?,"
+                        "updated_at=? WHERE item_id=? AND user_id=? AND item_kind=?",
+            "neutral_outcomes": "UPDATE abstraction_reputation SET neutral_outcomes="
+                                "neutral_outcomes+?,updated_at=? WHERE item_id=?"
+                                " AND user_id=? AND item_kind=?",
+            "evidence_contradictions":
+                "UPDATE abstraction_reputation SET evidence_contradictions="
+                "evidence_contradictions+?,updated_at=? WHERE item_id=?"
+                " AND user_id=? AND item_kind=?",
+        }
+        statement = statements.get(column)
+        if statement is None:
+            raise ValueError(f"Unknown abstraction reputation signal: {column!r}")
+        self._ensure_subject(user_id, kind, item_id)
+        self.db.execute(statement, (by, _now(), item_id, user_id, kind))
+
+    def record_subject_retrieval(self, user_id: str, kind: str,
+                                 item_id: str) -> dict[str, Any]:
+        self._bump_subject(user_id, kind, item_id, "retrievals")
+        return self.get_subject(user_id, kind, item_id)
+
+    def record_subject_influence(self, user_id: str, kind: str,
+                                 item_id: str) -> dict[str, Any]:
+        self._bump_subject(user_id, kind, item_id, "usages")
+        return self.get_subject(user_id, kind, item_id)
+
+    def record_subject_outcome(self, user_id: str, kind: str, item_id: str,
+                               verdict: str) -> dict[str, Any]:
+        verdict = verdict.upper()
+        column = {"SUPPORTED": "successes", "CONTRADICTED": "failures",
+                  "NEUTRAL": "neutral_outcomes"}.get(verdict)
+        if column is None:
+            # INSUFFICIENT EVIDENCE is deliberately not a performance signal.
+            return self.get_subject(user_id, kind, item_id)
+        self._bump_subject(user_id, kind, item_id, column)
+        return self.get_subject(user_id, kind, item_id)
+
+    def record_subject_contradiction(self, user_id: str, kind: str,
+                                     item_id: str) -> dict[str, Any]:
+        """Record evidence against truth without pretending the item was used."""
+        self._bump_subject(user_id, kind, item_id, "evidence_contradictions")
+        return self.get_subject(user_id, kind, item_id)
+
+    def get_subject(self, user_id: str, kind: str,
+                    item_id: str) -> dict[str, Any]:
+        if kind not in ABSTRACTION_KINDS:
+            raise ValueError(f"Unsupported reputation subject: {kind!r}")
+        row = self.db.query_one(
+            "SELECT * FROM abstraction_reputation WHERE item_id=? AND user_id=?"
+            " AND item_kind=?", (item_id, user_id, kind))
+        if row is None:
+            return {"item_id": item_id, "kind": kind,
+                    "reputation": "INSUFFICIENT EVIDENCE", "score": None,
+                    "evidence": 0, "retrievals": 0, "usages": 0,
+                    "successes": 0, "failures": 0, "neutral_outcomes": 0,
+                    "evidence_contradictions": 0}
+        successes = int(row["successes"])
+        failures = int(row["failures"])
+        evidence = successes + failures
+        score = (successes / evidence) if evidence else None
+        if not evidence:
+            label = "INSUFFICIENT EVIDENCE"
+        elif failures >= 2 and failures > successes:
+            label = "CONTRADICTED"
+        elif evidence >= 3 and score is not None and score >= 0.8:
+            label = "TRUSTED"
+        elif evidence >= 2 and score is not None and score >= 0.66:
+            label = "RELIABLE"
+        elif score is not None and score >= 0.5:
+            label = "CONTEXTUAL"
+        else:
+            label = "UNCERTAIN"
+        return {"item_id": item_id, "kind": kind, "reputation": label,
+                "score": round(score, 4) if score is not None else None,
+                "evidence": evidence, "retrievals": int(row["retrievals"]),
+                "usages": int(row["usages"]), "successes": successes,
+                "failures": failures,
+                "neutral_outcomes": int(row["neutral_outcomes"]),
+                "evidence_contradictions": int(row["evidence_contradictions"])}
 
 
 class MemoryArbiter:

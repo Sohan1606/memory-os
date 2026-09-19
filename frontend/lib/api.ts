@@ -14,7 +14,8 @@ import type {
   ArbitrationRecord, CapabilitiesResponse, CapabilityTrustEntry,
   CognitivePolicy, ContinuityItem, ControlResult, ExecutionStep, FocusEntry,
   IntentTransition, MemoryImpact, MemoryInfluence, NeedHypothesis,
-  RouteDecision,
+  RouteDecision, Experience, KnowledgeExplanation, KnowledgeStats,
+  KnowledgeUsage, LearnedKnowledge,
 } from "./types";
 
 export class ApiError extends Error {
@@ -182,12 +183,14 @@ export const api = {
 
   learning: () => request<{ policies: CognitionStatus["policies"];
                             self_evaluation: Record<string, {
-                              question: string; answer: string; evidence: number }> }>(
+                              question: string; answer: string; evidence: number }>;
+                            experience_count: number; knowledge: KnowledgeStats }>(
     "/api/learning"),
 
   consolidateLearning: () =>
     request<{ proposed: { kind: string; statement: string; evidence: number;
-                          status: string }[]; note: string }>(
+                          status: string }[]; event_sample: number; note: string;
+              experience_learning: Record<string, unknown> }>(
       "/api/learning/consolidate", { method: "POST" }),
 
   simulate: (question: string) =>
@@ -370,6 +373,29 @@ export const api = {
 
   /** Connector interfaces. Nothing is connected in this build (§26). */
   connectors: () => request<ConnectorStatus>("/api/connectors"),
+
+  // --------------------------------------------------------- v8.4.1
+  /** Meaningful observed episodes with canonical evidence links. */
+  experiences: () =>
+    request<{ experiences: Experience[] }>("/api/experiences?limit=100"),
+
+  /** Actionable learned knowledge, never static demo records. */
+  skills: () =>
+    request<{ skills: LearnedKnowledge[]; stats: KnowledgeStats }>("/api/skills"),
+
+  /** Higher-order learned guidance backed by multiple skills/experiences. */
+  principles: () =>
+    request<{ principles: LearnedKnowledge[]; stats: KnowledgeStats }>(
+      "/api/principles"),
+
+  learnedExplanation: (kind: "skill" | "principle", id: string) =>
+    request<KnowledgeExplanation>(
+      `/api/${kind === "skill" ? "skills" : "principles"}/` +
+      `${encodeURIComponent(id)}/explanation`),
+
+  knowledgeUsages: (pending = false) =>
+    request<{ usages: KnowledgeUsage[] }>(
+      `/api/learning/usages${pending ? "?pending=true" : ""}`),
 
   /** Natural-language control over the system's own cognition. */
   control: (message: string, sessionId = "default") =>

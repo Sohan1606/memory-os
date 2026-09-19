@@ -15,6 +15,7 @@ import CognitivePolicyPanel from "@/components/observatory/CognitivePolicyPanel"
 import ContinuityPanel from "@/components/observatory/ContinuityPanel";
 import ContinuousStatePanel from "@/components/observatory/ContinuousStatePanel";
 import InfluencePanel from "@/components/observatory/InfluencePanel";
+import ExperienceSkillPrinciplePanel from "@/components/observatory/ExperienceSkillPrinciplePanel";
 import MissionPanel from "@/components/observatory/MissionPanel";
 import LearningPanel from "@/components/observatory/LearningPanel";
 import MemoryHealthPanel from "@/components/observatory/MemoryHealthPanel";
@@ -111,6 +112,7 @@ export default function ObservatoryPage() {
       }}>
         <MissionPanel refreshKey={refreshKey} />
         <WorldPanel refreshKey={refreshKey} />
+        <ExperienceSkillPrinciplePanel refreshKey={refreshKey} />
         <ContinuousStatePanel refreshKey={refreshKey} />
         <BackgroundPanel refreshKey={refreshKey} />
         <ActivityFeed

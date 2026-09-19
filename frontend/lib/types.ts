@@ -187,6 +187,7 @@ export interface CognitionStatus {
   self: SelfReport;
   policies: { id: string; key: string; value: string; rationale: string }[];
   events: Record<string, number>;
+  learning_v841?: KnowledgeStats & { experience_count: number };
 }
 
 export interface SandboxResult {
@@ -538,4 +539,124 @@ export interface ConnectorStatus {
   total: number;
   connected: number;
   detail: string;
+}
+
+// ----------------------------------------------------------- v8.4.1 types
+export interface ExperienceEvidence {
+  observation_id: string;
+  role: "supporting" | "counterexample";
+  source: string;
+  origin: string;
+  content: string;
+  epistemic_status: string;
+  confidence: number;
+}
+
+export interface Experience {
+  id: string;
+  situation: string;
+  action: string | null;
+  outcome: string | null;
+  success: boolean | null;
+  confidence: number;
+  scope_kind: string;
+  scope_value: string | null;
+  lifecycle: string;
+  source: string;
+  evidence: ExperienceEvidence[];
+  evidence_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AbstractionReputation {
+  reputation: string;
+  score: number | null;
+  evidence: number;
+  retrievals: number;
+  usages: number;
+  successes: number;
+  failures: number;
+  neutral_outcomes: number;
+  evidence_contradictions: number;
+}
+
+export interface KnowledgeEvidence {
+  id: string;
+  evidence_kind: string;
+  evidence_id: string;
+  stance: "supporting" | "counterexample";
+  relation: string;
+  quality: number;
+  note: string | null;
+}
+
+export interface KnowledgeValidation {
+  id: string;
+  decision: "PASS" | "REJECT";
+  confidence: number;
+  metrics: Record<string, number | boolean | string[]>;
+  reason: string;
+  validator: string;
+  created_at: string;
+}
+
+export interface KnowledgeUsage {
+  id: string;
+  item_id: string;
+  item_kind: "skill" | "principle";
+  influenced_kind: string;
+  influenced_id: string;
+  how: string;
+  status: string;
+  outcome_verdict: string | null;
+  outcome_detail: string | null;
+  outcome_evidence: string[];
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface LearnedKnowledge {
+  id: string;
+  kind: "skill" | "principle";
+  name: string;
+  statement: string;
+  trigger_text: string;
+  procedure: string[];
+  expected_outcome: string;
+  confidence: number;
+  reputation: AbstractionReputation;
+  lifecycle: string;
+  validation_status: string;
+  scope_kind: string;
+  scope_value: string | null;
+  generality: number;
+  evidence: KnowledgeEvidence[];
+  supporting_evidence_count: number;
+  counterexample_count: number;
+  validations: KnowledgeValidation[];
+  usages: KnowledgeUsage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeStats {
+  skills: number;
+  principles: number;
+  trusted_skills: number;
+  trusted_principles: number;
+  by_kind: Record<string, Record<string, number>>;
+}
+
+export interface KnowledgeExplanation {
+  item: LearnedKnowledge;
+  supporting_evidence: KnowledgeEvidence[];
+  counterexamples: KnowledgeEvidence[];
+  validation_history: KnowledgeValidation[];
+  lifecycle_history: { previous_lifecycle: string | null; lifecycle: string;
+                       reason: string; created_at: string }[];
+  usage_history: KnowledgeUsage[];
+  provenance: Record<string, unknown>;
+  summary: string;
+  note: string;
 }
