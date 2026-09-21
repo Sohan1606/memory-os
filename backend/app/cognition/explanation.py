@@ -53,6 +53,11 @@ EXPLANATION_CLASSES = (
     "POLICY_CHANGE",
     "MISSION_STATE_CHANGE",
     "RESEARCH_EVIDENCE",
+    "PORTABILITY_EXPORT",
+    "PORTABILITY_VALIDATION",
+    "PORTABILITY_CONFLICT",
+    "PORTABILITY_RESTORE",
+    "PORTABILITY_ROLLBACK",
 )
 
 QUERY_INTENTS = (
@@ -157,6 +162,10 @@ class ExplanationEngine:
         elif (exp_type == "RESEARCH_EVIDENCE"
               or kind in ("research", "research_claim", "research_source")):
             model = self.explain_research(user_id, kind or "research", sid, intent=intent)
+        elif (exp_type.startswith("PORTABILITY_") or kind in
+              ("export", "import", "restore", "restore_plan", "portability", "conflict")):
+            model = self.explain_portability(user_id, kind or "portability", sid,
+                                             exp_type or "PORTABILITY_VALIDATION", intent=intent)
         elif exp_type == "WHY_NOW":
             model = self.explain_why_now(user_id, kind, sid, question=question)
         else:
@@ -208,6 +217,14 @@ class ExplanationEngine:
             return "MISSION_STATE_CHANGE"
         if kind in ("research", "research_claim", "research_source"):
             return "RESEARCH_EVIDENCE"
+        if kind == "export":
+            return "PORTABILITY_EXPORT"
+        if kind in ("import", "portability"):
+            return "PORTABILITY_VALIDATION"
+        if kind in ("restore", "restore_plan"):
+            return "PORTABILITY_RESTORE"
+        if kind == "conflict":
+            return "PORTABILITY_CONFLICT"
         if intent == "why_now":
             return "WHY_NOW"
         if intent == "what_changed":
@@ -1711,6 +1728,68 @@ class ExplanationEngine:
             "correction": None,
             "confidence": 0.7,
             "provenance": {"source": "event_bus", "schema_version": "8.4.2", "generated_at": _now(), "evidence_count": len(events)},
+            "created_at": _now(),
+        }
+
+    def explain_portability(self, user_id: str, kind: str, subject_id: str,
+                            exp_type: str = "PORTABILITY_VALIDATION",
+                            intent: str = "why") -> dict[str, Any]:
+        """Explain only persisted portability evidence; never narrate imagined work."""
+        exp_id = f"exp_{uuid.uuid4().hex[:12]}"
+        evidence: list[dict[str, Any]] = []
+        timeline: list[dict[str, Any]] = []
+        current: dict[str, Any] = {}
+        service = getattr(self.cognition, "portability", None)
+        if kind == "export" and service:
+            row = service._export_row(user_id, subject_id)
+            if row:
+                manifest = _loads(row.get("manifest"), {})
+                current = {"status": row.get("status"), "object_counts": manifest.get("object_counts", {}),
+                           "selected_domains": manifest.get("selected_domains", []),
+                           "integrity": service.verify_export(user_id, subject_id, emit_event=False)}
+                evidence.append({"id": subject_id, "kind": "export_manifest", "description": "Persisted export manifest and integrity result."})
+        elif service:
+            if kind in {"import", "portability"}:
+                row = service._import_row(user_id, subject_id)
+                if row:
+                    current = {"state": row.get("state"), "validation": _loads(row.get("validation_json"), {})}
+                    evidence.append({"id": subject_id, "kind": "import_validation", "description": "Persisted package validation result."})
+            elif kind in {"restore", "restore_plan"}:
+                row = self.db.query_one("SELECT * FROM portability_operations WHERE id=? AND user_id=?", (subject_id, user_id))
+                if not row and kind == "restore_plan":
+                    row = self.db.query_one("SELECT * FROM portability_restore_plans WHERE id=? AND user_id=?", (subject_id, user_id))
+                if row:
+                    current = dict(row)
+                    for key in ("detail", "plan_json"):
+                        if key in current:
+                            current[key] = _loads(current[key], current[key])
+                    evidence.append({"id": subject_id, "kind": "restore_record", "description": "Persisted restore plan or operation record."})
+            elif kind == "conflict":
+                row = self.db.query_one("SELECT * FROM portability_conflicts WHERE id=? AND user_id=?", (subject_id, user_id))
+                if row:
+                    current = dict(row)
+                    current["local"] = _loads(current.pop("local_record", None), {})
+                    current["imported"] = _loads(current.pop("imported_record", None), {})
+                    evidence.append({"id": subject_id, "kind": "restore_conflict", "description": "Persisted local/imported records and explicit resolution state."})
+        events = [event.as_dict() for event in self.bus.for_subject(kind, subject_id, user_id=user_id)]
+        timeline.extend(events)
+        if not current:
+            summary = "INSUFFICIENT EVIDENCE — no portability record exists for this subject."
+        elif kind == "conflict":
+            summary = "This restore requires an explicit conflict decision; existing state was not silently overwritten."
+        elif current.get("status") in {"REJECTED", "ROLLED_BACK", "INVALID"}:
+            summary = "The persisted portability record shows that the operation did not change live cognitive state."
+        else:
+            summary = "This explanation is assembled from the persisted portability manifest, validation, conflict, and audit records."
+        return {
+            "id": exp_id, "user_id": user_id, "explanation_type": exp_type,
+            "query_intent": intent, "subject": {"kind": kind, "id": subject_id,
+            "status": current.get("status") or current.get("state", "unknown"), "current_state": current},
+            "summary": summary, "decisive_factors": [], "supporting_evidence": evidence,
+            "counter_evidence": [], "alternatives": [], "causality": {"upstream": [], "downstream": []},
+            "timeline": timeline, "correction": None, "confidence": 1.0 if evidence else None,
+            "provenance": {"source": "portability_records", "schema_version": "8.4.4",
+                            "generated_at": _now(), "evidence_count": len(evidence)},
             "created_at": _now(),
         }
 

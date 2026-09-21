@@ -157,6 +157,16 @@ RESEARCH_V843 = (
     "research.completed", "research.failed",
 )
 
+# ------------------------------------------------------------- v8.4.4 events
+# Portability events are emitted only for real package/validation/restore work.
+# They deliberately live on this same EventBus as every other cognitive event.
+PORTABILITY_V844 = (
+    "export.started", "export.completed", "export.failed",
+    "import.started", "import.validated", "import.rejected",
+    "restore.dry_run", "restore.confirmed", "restore.applied",
+    "restore.failed", "restore.rolled_back", "restore.conflict_detected",
+)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -168,7 +178,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + OBSERVATION + OUTCOME_V83 + SIMULATION + BACKGROUND + MAINTENANCE_V83
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
-    + EXPLANATION_V842 + RESEARCH_V843
+    + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -402,6 +412,18 @@ LABELS: dict[str, str] = {
     "research.world_update_applied": "Applied an evidence-backed world update",
     "research.completed": "Finished a connected research session",
     "research.failed": "A connected research session failed",
+    "export.started": "Started a user-owned data export",
+    "export.completed": "Completed a user-owned data export",
+    "export.failed": "A data export failed",
+    "import.started": "Staged an untrusted data package",
+    "import.validated": "Validated a data package",
+    "import.rejected": "Rejected a data package",
+    "restore.dry_run": "Planned a restore without changing live state",
+    "restore.confirmed": "Restore was explicitly confirmed",
+    "restore.applied": "Applied a data restore",
+    "restore.failed": "A restore failed",
+    "restore.rolled_back": "Rolled back a failed restore",
+    "restore.conflict_detected": "Found a restore conflict requiring your choice",
 }
 
 

@@ -69,6 +69,14 @@ class Settings:
     cors_origins: str = os.getenv("CORS_ORIGINS", "*")
     disable_embeddings: bool = _bool("MEMORY_OS_DISABLE_EMBEDDINGS", False)
 
+    # V8.4.4 portability limits. Imported packages are untrusted input and are
+    # bounded before any JSON is parsed or any live row is touched.
+    portability_max_package_bytes: int = int(os.getenv("PORTABILITY_MAX_PACKAGE_BYTES", str(50 * 1024 * 1024)))
+    portability_max_member_bytes: int = int(os.getenv("PORTABILITY_MAX_MEMBER_BYTES", str(20 * 1024 * 1024)))
+    portability_max_decompressed_bytes: int = int(os.getenv("PORTABILITY_MAX_DECOMPRESSED_BYTES", str(200 * 1024 * 1024)))
+    portability_max_records: int = int(os.getenv("PORTABILITY_MAX_RECORDS", "100000"))
+    portability_max_processing_seconds: float = float(os.getenv("PORTABILITY_MAX_PROCESSING_SECONDS", "30"))
+
 
 settings = Settings()
 settings.data_dir.mkdir(parents=True, exist_ok=True)

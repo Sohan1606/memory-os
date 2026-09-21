@@ -20,6 +20,7 @@ import MissionPanel from "@/components/observatory/MissionPanel";
 import LearningPanel from "@/components/observatory/LearningPanel";
 import MemoryHealthPanel from "@/components/observatory/MemoryHealthPanel";
 import ProviderPanel from "@/components/observatory/ProviderPanel";
+import PortabilityPanel from "@/components/observatory/PortabilityPanel";
 import ResearchPanel from "@/components/observatory/ResearchPanel";
 import SandboxPanel from "@/components/observatory/SandboxPanel";
 import SelfPanel from "@/components/observatory/SelfPanel";
@@ -135,6 +136,7 @@ export default function ObservatoryPage() {
         <LearningPanel refreshKey={refreshKey} />
         <SandboxPanel />
         <ResearchPanel refreshKey={refreshKey} />
+        <PortabilityPanel refreshKey={refreshKey} />
 
         <Panel title="Predictions" hint="Calibration is only reported once enough predictions have resolved.">
           {status ? (

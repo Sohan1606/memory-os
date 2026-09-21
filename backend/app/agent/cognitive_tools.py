@@ -859,6 +859,87 @@ def build_cognitive_tools(
                              "value": updated["scope_value"]},
                    "detail": detail})
 
+    # ============================================== DATA PORTABILITY (V8.4.4)
+    def start_export(domains: list[str] | None = None) -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED", "detail": "Portability is not available."})
+        try:
+            result = service.create_export(user_id, domains or [])
+            emit("START_EXPORT", {"export_id": result["export"]["id"]})
+            return _j({"status": "COMPLETED", "export": result["export"],
+                       "manifest": result["manifest"], "integrity": result["integrity"]})
+        except Exception as exc:
+            return _j({"status": "FAILED", "detail": str(exc)[:500]})
+
+    def inspect_export(export_id: str = "") -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED"})
+        if not export_id.strip():
+            exports = service.list_exports(user_id, limit=5)
+            return _j({"status": "OK", "exports": exports or "NO_EXPORTS_RECORDED"})
+        try:
+            return _j({"status": "OK", **service.inspect_export(user_id, export_id.strip())})
+        except (KeyError, FileNotFoundError, ValueError) as exc:
+            return _j({"status": "NOT_FOUND", "detail": str(exc)})
+
+    def validate_import(import_id: str = "") -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED"})
+        if not import_id.strip():
+            return _j({"status": "INVALID", "detail": "Supply an import session id returned by the upload step."})
+        try:
+            result = service.validate_import(user_id, import_id.strip())
+            return _j({"status": result.get("validation", {}).get("status", "REJECTED"), **result})
+        except (KeyError, ValueError) as exc:
+            return _j({"status": "REJECTED", "detail": str(exc)})
+
+    def dry_run_restore(import_id: str = "", domains: list[str] | None = None) -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED"})
+        try:
+            result = service.dry_run(user_id, import_id.strip(), domains or [])
+            emit("DRY_RUN_RESTORE", {"import_id": import_id, "plan_id": result["plan"]["id"]})
+            return _j({"status": result["plan"]["status"], **result})
+        except (KeyError, ValueError) as exc:
+            return _j({"status": "BLOCKED", "detail": str(exc)})
+
+    def inspect_restore_conflicts(import_id: str = "") -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED"})
+        try:
+            conflicts = service.list_conflicts(user_id, import_id.strip())
+            return _j({"status": "OK", "conflicts": conflicts,
+                       "detail": "Every divergent conflict needs an explicit skip, keep_local, or replace choice."})
+        except KeyError as exc:
+            return _j({"status": "NOT_FOUND", "detail": str(exc)})
+
+    def restore_selected(import_id: str = "", domains: list[str] | None = None,
+                         resolutions: dict[str, str] | None = None,
+                         confirm: bool = False) -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED"})
+        if not confirm:
+            return _j({"status": "CONFIRMATION_REQUIRED", "detail": "Restoration is not applied without explicit confirm=true."})
+        try:
+            result = service.apply_restore(user_id, import_id.strip(), confirm=True,
+                                           domains=domains or [], resolutions=resolutions or {})
+            emit("RESTORE_SELECTED", result.get("operation", {}))
+            return _j({"status": result["operation"]["status"], **result})
+        except (KeyError, ValueError) as exc:
+            return _j({"status": "BLOCKED", "detail": str(exc)})
+
+    def inspect_restore_history() -> str:
+        service = getattr(cognition, "portability", None)
+        if service is None:
+            return _j({"status": "NOT_CONFIGURED"})
+        return _j({"status": "OK", "operations": service.restore_history(user_id) or "NO_RESTORE_OPERATIONS_RECORDED"})
+
     # ============================================== EXPLANATION (§9)
     def explain_cognition(
         intent: str = "why",
@@ -1330,6 +1411,23 @@ def build_cognitive_tools(
         session_id: str = Field(
             default="", description="Omit to use the focused research session.")
 
+    class PortabilityExportArgs(_NullTolerant):
+        domains: list[str] = Field(default_factory=list, description="Optional restore/export domains; omit for the complete package.")
+
+    class PortabilityImportArgs(_NullTolerant):
+        import_id: str = Field(default="", description="Import session id returned by the upload API.")
+
+    class PortabilityInspectExportArgs(_NullTolerant):
+        export_id: str = Field(default="", description="Persisted export id; omit to list recent exports.")
+
+    class PortabilityDryRunArgs(PortabilityImportArgs):
+        domains: list[str] = Field(default_factory=list)
+
+    class PortabilityRestoreArgs(PortabilityImportArgs):
+        domains: list[str] = Field(default_factory=list)
+        resolutions: dict[str, str] = Field(default_factory=dict)
+        confirm: bool = Field(default=False, description="Must be true only after inspecting validation, dry-run and conflicts.")
+
     class LearnedListArgs(_NullTolerant):
         kind: str = Field(default="all", description="all | skill | principle")
 
@@ -1540,6 +1638,34 @@ def build_cognitive_tools(
             description="Explore a what-if without changing anything. Use for "
                         "'what if I delay this'. Results are SIMULATED.",
             args_schema=SimulateArgs),
+        StructuredTool.from_function(
+            func=start_export, name="start_export",
+            description="Create a real, user-owned MEMORY//OS export package. The package includes the selected cognitive domains, a versioned manifest, deterministic JSON, hashes, provenance and a human-readable report. It never includes secrets.",
+            args_schema=PortabilityExportArgs),
+        StructuredTool.from_function(
+            func=inspect_export, name="inspect_export",
+            description="Inspect a persisted export manifest and integrity result. Omit export_id to list recent real exports; never invent an id.",
+            args_schema=PortabilityInspectExportArgs),
+        StructuredTool.from_function(
+            func=validate_import, name="validate_import",
+            description="Validate an already staged import package. Validation checks the manifest, schema, hashes, structure, relationships and security limits before any live state is touched.",
+            args_schema=PortabilityImportArgs),
+        StructuredTool.from_function(
+            func=dry_run_restore, name="dry_run_restore",
+            description="Plan a restore without changing live state. Use only after validate_import; the result exposes dependencies, changes and unresolved conflicts.",
+            args_schema=PortabilityDryRunArgs),
+        StructuredTool.from_function(
+            func=inspect_restore_conflicts, name="inspect_restore_conflicts",
+            description="List explicit restore conflicts. Do not resolve or hide same-id, version, lifecycle, relationship or provenance differences.",
+            args_schema=PortabilityImportArgs),
+        StructuredTool.from_function(
+            func=restore_selected, name="restore_selected",
+            description="Apply selected domains only after validation, dry-run and conflict inspection. Requires explicit confirm=true and a resolution for every divergent conflict; never silently overwrites.",
+            args_schema=PortabilityRestoreArgs),
+        StructuredTool.from_function(
+            func=inspect_restore_history, name="inspect_restore_history",
+            description="Inspect real applied, failed and rolled-back restore operations from the canonical recovery audit trail.",
+            args_schema=NoArgs),
         StructuredTool.from_function(
             func=start_research, name="start_research",
             description="Start a Connected Research session for an explicit "

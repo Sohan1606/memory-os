@@ -18,7 +18,8 @@ import type {
   KnowledgeUsage, LearnedKnowledge, ExplanationGraph, ExplanationSnapshotMeta,
   ResearchSession, ResearchSource, ResearchFetch, ResearchEvidence,
   ResearchClaim, ResearchConflict, ResearchWorldUpdate, ResearchStatus,
-  ResearchFetchResult,
+  ResearchFetchResult, PortabilityExport, PortabilityImport, PortabilityPlan,
+  RestoreConflict, RestoreOperation,
 } from "./types";
 
 export class ApiError extends Error {
@@ -519,4 +520,47 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ confirm }),
       }),
+
+  // --------------------------------------------------------- v8.4.4
+  portabilityExports: () =>
+    request<{ exports: PortabilityExport[] }>("/api/portability/v1/exports"),
+
+  createPortabilityExport: (domains: string[] = []) =>
+    request<{ export: PortabilityExport; manifest: Record<string, unknown>; integrity: Record<string, unknown> }>(
+      "/api/portability/v1/exports", {
+        method: "POST", body: JSON.stringify({ domains }),
+      }),
+
+  stagePortabilityImport: async (file: File) => {
+    const body = new FormData(); body.append("file", file);
+    const res = await fetch("/api/portability/v1/imports", { method: "POST", body, cache: "no-store" });
+    if (!res.ok) throw new ApiError(`Import staging failed (${res.status})`, res.status);
+    return res.json() as Promise<{ import: PortabilityImport; validation: unknown; manifest: unknown }>;
+  },
+
+  portabilityImports: () =>
+    request<{ imports: PortabilityImport[] }>("/api/portability/v1/imports"),
+
+  validatePortabilityImport: (importId: string) =>
+    request<{ validation: { status: string; errors?: string[]; warnings?: string[] } }>(
+      `/api/portability/v1/imports/${encodeURIComponent(importId)}/validate`, { method: "POST" }),
+
+  dryRunPortabilityRestore: (importId: string, domains: string[] = []) =>
+    request<{ plan: PortabilityPlan }>(
+      `/api/portability/v1/imports/${encodeURIComponent(importId)}/dry-run`, {
+        method: "POST", body: JSON.stringify({ domains }),
+      }),
+
+  portabilityConflicts: (importId: string) =>
+    request<{ conflicts: RestoreConflict[] }>(
+      `/api/portability/v1/imports/${encodeURIComponent(importId)}/conflicts`),
+
+  restorePortability: (importId: string, confirm: boolean, domains: string[] = [], resolutions: Record<string, string> = {}) =>
+    request<{ operation: RestoreOperation }>(
+      `/api/portability/v1/imports/${encodeURIComponent(importId)}/restore-selected`, {
+        method: "POST", body: JSON.stringify({ confirm, domains, resolutions }),
+      }),
+
+  portabilityHistory: () =>
+    request<{ operations: RestoreOperation[] }>("/api/portability/v1/restore-history"),
 };
