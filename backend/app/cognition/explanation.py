@@ -52,6 +52,7 @@ EXPLANATION_CLASSES = (
     "EXPERIENCE_FORMATION",
     "POLICY_CHANGE",
     "MISSION_STATE_CHANGE",
+    "RESEARCH_EVIDENCE",
 )
 
 QUERY_INTENTS = (
@@ -153,6 +154,9 @@ class ExplanationEngine:
             model = self.explain_policy(user_id, sid, intent=intent)
         elif exp_type == "MISSION_STATE_CHANGE" or kind == "mission":
             model = self.explain_mission(user_id, sid, intent=intent)
+        elif (exp_type == "RESEARCH_EVIDENCE"
+              or kind in ("research", "research_claim", "research_source")):
+            model = self.explain_research(user_id, kind or "research", sid, intent=intent)
         elif exp_type == "WHY_NOW":
             model = self.explain_why_now(user_id, kind, sid, question=question)
         else:
@@ -202,6 +206,8 @@ class ExplanationEngine:
             return "POLICY_CHANGE"
         if kind == "mission":
             return "MISSION_STATE_CHANGE"
+        if kind in ("research", "research_claim", "research_source"):
+            return "RESEARCH_EVIDENCE"
         if intent == "why_now":
             return "WHY_NOW"
         if intent == "what_changed":
@@ -1494,6 +1500,187 @@ class ExplanationEngine:
             "correction": None,
             "confidence": 0.9,
             "provenance": {"source": "mission_registry", "schema_version": "8.4.2", "generated_at": _now(), "evidence_count": len(history)},
+            "created_at": _now(),
+        }
+
+    # ------------------------------------------------ 21. Research Evidence
+    def explain_research(self, user_id: str, kind: str, sid: str,
+                         intent: str = "why") -> dict[str, Any]:
+        """
+        Explain a Connected Research (V8.4.3) subject: why a source was
+        fetched, what evidence supports a claim, why claims conflict, why a
+        source was rejected/blocked, or why research was blocked overall.
+
+        `kind` may be 'research' (a session id), 'research_claim' (a claim
+        id) or 'research_source' (a source id) — resolved against the real
+        ResearchEngine tables, never fabricated.
+        """
+        exp_id = f"exp_{uuid.uuid4().hex[:12]}"
+        engine = getattr(self.cognition, "research_engine", None)
+        if engine is None:
+            return self._insufficient_evidence(
+                exp_id, "RESEARCH_EVIDENCE", intent, kind, sid,
+                "Connected Research engine is not available in this build.")
+
+        # A claim id: explain its evidence, corroboration and any conflicts.
+        claim = engine.get_claim(user_id, sid) if sid else None
+        if claim is not None:
+            session_id = claim["session_id"]
+            evidence_rows = [e for e in engine.evidence(user_id, session_id)
+                             if e["id"] in claim["evidence_ids"]]
+            source_rows = [s for s in engine.sources(user_id, session_id)
+                          if s["id"] in claim["source_ids"]]
+            conflicts = [c for c in engine.conflicts(user_id, session_id)
+                        if claim["id"] in c["claim_ids"]]
+
+            decisive_factors = [
+                {"name": "evidence_strength", "value": claim["evidence_strength"],
+                 "impact": "positive" if claim["evidence_strength"] >= 0.5 else "neutral",
+                 "description": f"Average evidence strength: {claim['evidence_strength']:.2f}."},
+                {"name": "source_quality", "value": claim.get("source_quality"),
+                 "impact": "neutral",
+                 "description": f"Average source quality: {claim.get('source_quality')}."},
+                {"name": "independent_domain_count", "value": claim["independent_domain_count"],
+                 "impact": "positive" if claim["independent_domain_count"] > 1 else "neutral",
+                 "description": (f"Corroborated by {claim['independent_domain_count']} "
+                                f"independent domain(s) — repeated pages on the "
+                                f"same domain do not count as independent "
+                                f"corroboration.")},
+                {"name": "claim_confidence", "value": claim["claim_confidence"],
+                 "impact": "positive" if claim["claim_confidence"] >= 0.5 else "neutral",
+                 "description": (f"Capped external-evidence confidence: "
+                                f"{claim['claim_confidence']:.2f}. This is "
+                                f"deliberately bounded — external evidence is "
+                                f"never treated as certainty.")},
+                {"name": "status", "value": claim["status"],
+                 "impact": "negative" if claim["status"] == "contested" else "positive",
+                 "description": f"Claim status: {claim['status']}."},
+            ]
+
+            if intent == "why_not" and conflicts:
+                other_ids = [c for grp in conflicts for c in grp["claim_ids"] if c != claim["id"]]
+                summary = (f"This claim is contested: {len(conflicts)} conflict "
+                          f"group(s) preserve a competing claim rather than "
+                          f"silently resolving it. Competing claim id(s): "
+                          f"{', '.join(other_ids) or 'none'}.")
+            elif intent == "what_evidence":
+                summary = (f"Claim \"{claim['statement'][:100]}\" is backed by "
+                          f"{len(evidence_rows)} evidence excerpt(s) from "
+                          f"{len(source_rows)} source(s): "
+                          + "; ".join(s["canonical_url"] for s in source_rows[:3]) + ".")
+            else:
+                summary = (f"Claim \"{claim['statement'][:100]}\" derives from "
+                          f"{claim['corroboration_count']} piece(s) of evidence "
+                          f"across {claim['independent_domain_count']} independent "
+                          f"domain(s), giving it a capped confidence of "
+                          f"{claim['claim_confidence']:.2f} (status: {claim['status']}).")
+
+            return {
+                "id": exp_id, "user_id": user_id,
+                "explanation_type": "RESEARCH_EVIDENCE", "query_intent": intent,
+                "subject": {"kind": "research_claim", "id": claim["id"],
+                           "label": claim["statement"][:100], "status": claim["status"],
+                           "lifecycle": claim["status"], "current_state": claim,
+                           "historical_state": None},
+                "summary": summary, "decisive_factors": decisive_factors,
+                "supporting_evidence": [
+                    {"id": e["id"], "kind": "research_evidence", "content": e["excerpt"],
+                     "confidence": e["evidence_strength"], "source": e["locator"],
+                     "created_at": e["retrieved_at"], "relation": "supports_claim"}
+                    for e in evidence_rows],
+                "counter_evidence": [
+                    {"id": grp["id"], "kind": "research_conflict", "content": grp["reason"],
+                     "confidence": None, "source": "conflict_detection",
+                     "created_at": grp["created_at"], "relation": "conflicts_with"}
+                    for grp in conflicts],
+                "alternatives": [],
+                "causality": {"upstream": [], "downstream": []},
+                "timeline": [],
+                "correction": None,
+                "confidence": claim["claim_confidence"],
+                "provenance": {"source": "research_engine", "schema_version": "8.4.3",
+                              "generated_at": _now(),
+                              "evidence_count": len(evidence_rows)},
+                "created_at": _now(),
+            }
+
+        # A source id: explain why it was fetched / rejected.
+        source = None
+        for s in self.db.query("SELECT * FROM research_sources WHERE id=? AND user_id=?", (sid, user_id)):
+            source = dict(s)
+        if source is not None:
+            fetches = [f for f in self.db.query(
+                "SELECT * FROM research_fetches WHERE source_id=? AND user_id=?",
+                (sid, user_id))]
+            fetches = [dict(f) for f in fetches]
+            latest = fetches[-1] if fetches else None
+            summary = (f"Source '{source['canonical_url']}' is {source['availability']}."
+                      + (f" Latest fetch: {latest['status']}"
+                         + (f" ({latest['error_detail']})" if latest and latest.get('error_detail') else ".")
+                         if latest else " No fetch has been attempted."))
+            return {
+                "id": exp_id, "user_id": user_id,
+                "explanation_type": "RESEARCH_EVIDENCE", "query_intent": intent,
+                "subject": {"kind": "research_source", "id": source["id"],
+                           "label": source["canonical_url"], "status": source["availability"],
+                           "lifecycle": source["availability"], "current_state": source,
+                           "historical_state": None},
+                "summary": summary,
+                "decisive_factors": [
+                    {"name": "availability", "value": source["availability"], "impact": "neutral",
+                     "description": f"Availability: {source['availability']}."}],
+                "supporting_evidence": [
+                    {"id": f["id"], "kind": "fetch_attempt",
+                     "content": f.get("error_detail") or f"HTTP {f.get('http_status')}",
+                     "confidence": None, "source": f["status"],
+                     "created_at": f["fetched_at"], "relation": "fetch_history"}
+                    for f in fetches],
+                "counter_evidence": [], "alternatives": [],
+                "causality": {"upstream": [], "downstream": []}, "timeline": [],
+                "correction": None, "confidence": None,
+                "provenance": {"source": "research_engine", "schema_version": "8.4.3",
+                              "generated_at": _now(), "evidence_count": len(fetches)},
+                "created_at": _now(),
+            }
+
+        # Fall back to the session itself.
+        session = engine.get(user_id, sid) if sid else None
+        if session is None:
+            return self._insufficient_evidence(
+                exp_id, "RESEARCH_EVIDENCE", intent, kind, sid,
+                f"No research session, claim or source found for id '{sid}'.")
+
+        conflicts = engine.conflicts(user_id, sid)
+        summary = (f"Research session '{session['question'][:80]}' is "
+                  f"{session['state']}: {session['source_count']} source(s), "
+                  f"{session['evidence_count']} evidence record(s), "
+                  f"{session['claim_count']} claim(s), "
+                  f"{session['conflict_count']} conflict(s). {session.get('detail') or ''}")
+        return {
+            "id": exp_id, "user_id": user_id,
+            "explanation_type": "RESEARCH_EVIDENCE", "query_intent": intent,
+            "subject": {"kind": "research", "id": session["id"],
+                       "label": session["question"][:100], "status": session["state"],
+                       "lifecycle": session["state"], "current_state": session,
+                       "historical_state": None},
+            "summary": summary,
+            "decisive_factors": [
+                {"name": "state", "value": session["state"], "impact": "neutral",
+                 "description": f"Session state: {session['state']}."},
+                {"name": "conflict_count", "value": session["conflict_count"],
+                 "impact": "negative" if session["conflict_count"] else "positive",
+                 "description": f"{session['conflict_count']} unresolved conflict(s)."},
+            ],
+            "supporting_evidence": [],
+            "counter_evidence": [
+                {"id": c["id"], "kind": "research_conflict", "content": c["reason"],
+                 "confidence": None, "source": "conflict_detection",
+                 "created_at": c["created_at"], "relation": "conflicts_with"}
+                for c in conflicts],
+            "alternatives": [], "causality": {"upstream": [], "downstream": []},
+            "timeline": [], "correction": None, "confidence": None,
+            "provenance": {"source": "research_engine", "schema_version": "8.4.3",
+                          "generated_at": _now(), "evidence_count": session["evidence_count"]},
             "created_at": _now(),
         }
 

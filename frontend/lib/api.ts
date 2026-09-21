@@ -16,6 +16,9 @@ import type {
   IntentTransition, MemoryImpact, MemoryInfluence, NeedHypothesis,
   RouteDecision, Experience, KnowledgeExplanation, KnowledgeStats,
   KnowledgeUsage, LearnedKnowledge, ExplanationGraph, ExplanationSnapshotMeta,
+  ResearchSession, ResearchSource, ResearchFetch, ResearchEvidence,
+  ResearchClaim, ResearchConflict, ResearchWorldUpdate, ResearchStatus,
+  ResearchFetchResult,
 } from "./types";
 
 export class ApiError extends Error {
@@ -445,4 +448,75 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  // --------------------------------------------------------- v8.4.3
+  /**
+   * Connected Research. A distinct, additive namespace from the legacy
+   * /api/research "no provider configured" state machine — this one
+   * performs real, SSRF-defended http(s) fetches of URLs supplied by the
+   * caller. No search engine exists; the backend never invents a URL.
+   */
+  researchStatus: () => request<ResearchStatus>("/api/research/v2/status"),
+
+  researchSessions: (limit = 25) =>
+    request<{ sessions: ResearchSession[] }>(`/api/research/v2?limit=${limit}`),
+
+  createResearchSession: (question: string) =>
+    request<{ session: ResearchSession }>("/api/research/v2", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
+
+  researchSession: (sessionId: string) =>
+    request<{ session: ResearchSession }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}`),
+
+  fetchResearchSource: (sessionId: string, url: string) =>
+    request<ResearchFetchResult>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/fetch`, {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+
+  finishResearchSession: (sessionId: string) =>
+    request<{ session: ResearchSession }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/finish`, { method: "POST" }),
+
+  researchSources: (sessionId: string) =>
+    request<{ sources: ResearchSource[] }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/sources`),
+
+  researchFetches: (sessionId: string) =>
+    request<{ fetches: ResearchFetch[] }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/fetches`),
+
+  researchEvidence: (sessionId: string) =>
+    request<{ evidence: ResearchEvidence[] }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/evidence`),
+
+  researchClaims: (sessionId: string) =>
+    request<{ claims: ResearchClaim[] }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/claims`),
+
+  researchConflicts: (sessionId: string) =>
+    request<{ conflicts: ResearchConflict[] }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/conflicts`),
+
+  researchWorldUpdates: (sessionId: string) =>
+    request<{ world_updates: ResearchWorldUpdate[] }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/world-updates`),
+
+  proposeResearchWorldUpdate: (sessionId: string, claimId: string, kind: string, label: string) =>
+    request<{ world_update: ResearchWorldUpdate }>(
+      `/api/research/v2/${encodeURIComponent(sessionId)}/world-updates/propose`, {
+        method: "POST",
+        body: JSON.stringify({ claim_id: claimId, kind, label }),
+      }),
+
+  applyResearchWorldUpdate: (updateId: string, confirm: boolean) =>
+    request<{ update: ResearchWorldUpdate; reconciliation: Record<string, unknown> }>(
+      `/api/research/v2/world-updates/${encodeURIComponent(updateId)}/apply`, {
+        method: "POST",
+        body: JSON.stringify({ confirm }),
+      }),
 };

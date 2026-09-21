@@ -140,6 +140,23 @@ EXPLANATION_V842 = (
     "explanation.generated", "explanation.queried", "explanation.persisted",
 )
 
+# ------------------------------------------------------------- v8.4.3 events
+# Connected Research + External World Intelligence. This is a distinct event
+# family from the V8.3 `research.requested` / `research.unavailable` pair
+# above (which remain the honest state machine for the declarative,
+# not-yet-connected `ResearchMode`). These cover the real, evidence-backed
+# ResearchEngine: every fetch, evidence record, claim and world-model
+# proposal it makes is independently observable through the canonical bus.
+RESEARCH_V843 = (
+    "research.started", "research.source_registered",
+    "research.fetch_started", "research.fetch_completed",
+    "research.fetch_failed", "research.fetch_blocked",
+    "research.evidence_recorded", "research.claim_created",
+    "research.claim_corroborated", "research.claim_conflict_detected",
+    "research.world_update_proposed", "research.world_update_applied",
+    "research.completed", "research.failed",
+)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -151,7 +168,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + OBSERVATION + OUTCOME_V83 + SIMULATION + BACKGROUND + MAINTENANCE_V83
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
-    + EXPLANATION_V842
+    + EXPLANATION_V842 + RESEARCH_V843
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -370,6 +387,21 @@ LABELS: dict[str, str] = {
     "explanation.generated": "Explained a cognitive result",
     "explanation.queried": "Audited reasoning evidence",
     "explanation.persisted": "Saved auditable explanation",
+    # --------------------------------------------------------- v8.4.3 labels
+    "research.started": "Started a connected research session",
+    "research.source_registered": "Registered a research source",
+    "research.fetch_started": "Started fetching a source",
+    "research.fetch_completed": "Fetched a source successfully",
+    "research.fetch_failed": "A source fetch failed",
+    "research.fetch_blocked": "Blocked an unsafe or over-limit fetch",
+    "research.evidence_recorded": "Recorded external evidence",
+    "research.claim_created": "Derived a claim from evidence",
+    "research.claim_corroborated": "A claim was corroborated by another source",
+    "research.claim_conflict_detected": "Detected conflicting claims",
+    "research.world_update_proposed": "Proposed a bounded world model update",
+    "research.world_update_applied": "Applied an evidence-backed world update",
+    "research.completed": "Finished a connected research session",
+    "research.failed": "A connected research session failed",
 }
 
 

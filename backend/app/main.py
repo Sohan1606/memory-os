@@ -35,6 +35,8 @@ from .schemas.api import (DecisionOutcomeRequest, ExperienceCreateRequest,
                           KnowledgeOutcomeRequest, KnowledgeRetrievalRequest,
                           KnowledgeUseRequest, PrincipleCandidateRequest,
                           SkillCandidateRequest, ExplanationQueryRequest)
+from .schemas.api import (ResearchFetchRequest, ResearchSessionCreateRequest,
+                          ResearchWorldApplyRequest, ResearchWorldProposeRequest)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ app = FastAPI(
     title="MEMORY//OS API",
     description="Local-first AI agent with long-term memory. LangGraph + LangChain "
                 "+ ChromaDB + local embeddings + SQLite.",
-    version="8.4.2",
+    version="8.4.3",
 )
 
 origins = ["*"] if settings.cors_origins.strip() == "*" else [
@@ -1561,6 +1563,137 @@ def start_research(req: ResearchRequest, runtime: Runtime = Depends(rt)):
     """Tracks the question; produces no findings without a provider (§27)."""
     user = uid(runtime, req.user_id)
     return {"session": runtime.cognition.research.start(user, req.question)}
+
+
+# --------------------------------------------- v8.4.3 connected research (v2)
+#
+# A distinct, additive namespace from the /api/research routes above, which
+# remain the honest "no provider configured" state machine (V8.3 §27). These
+# routes drive the REAL ResearchEngine: explicit http(s) URLs are fetched
+# through an SSRF-defended pipeline and produce genuine, provenance-carrying
+# evidence and claims. Every route is scoped to the caller's user_id and
+# never resolves another user's session/source/evidence/claim by id.
+@app.get("/api/research/v2/status")
+def research_v2_status(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return runtime.cognition.research_engine.status(user)
+
+
+@app.post("/api/research/v2")
+def create_research_session(req: ResearchSessionCreateRequest,
+                            runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    return {"session": runtime.cognition.research_engine.start(user, req.question)}
+
+
+@app.get("/api/research/v2")
+def list_research_sessions(user_id: str | None = None, limit: int = 25,
+                           runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"sessions": runtime.cognition.research_engine.list(user, limit=limit)}
+
+
+@app.get("/api/research/v2/{session_id}")
+def get_research_session(session_id: str, user_id: str | None = None,
+                         runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    session = runtime.cognition.research_engine.get(user, session_id)
+    if session is None:
+        raise HTTPException(404, "Research session not found.")
+    return {"session": session}
+
+
+@app.post("/api/research/v2/{session_id}/fetch")
+def fetch_research_source(session_id: str, req: ResearchFetchRequest,
+                          runtime: Runtime = Depends(rt)):
+    """Fetch one explicit URL. URLs are never invented by the backend."""
+    user = uid(runtime, req.user_id)
+    result = runtime.cognition.research_engine.fetch(user, session_id, req.url)
+    if result.get("status") == "NOT_FOUND":
+        raise HTTPException(404, result.get("detail", "Session not found."))
+    return result
+
+
+@app.post("/api/research/v2/{session_id}/finish")
+def finish_research_session(session_id: str, user_id: str | None = None,
+                            runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    session = runtime.cognition.research_engine.finish(user, session_id)
+    if session is None:
+        raise HTTPException(404, "Research session not found.")
+    return {"session": session}
+
+
+@app.get("/api/research/v2/{session_id}/sources")
+def get_research_sources(session_id: str, user_id: str | None = None,
+                         runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"sources": runtime.cognition.research_engine.sources(user, session_id)}
+
+
+@app.get("/api/research/v2/{session_id}/fetches")
+def get_research_fetches(session_id: str, user_id: str | None = None,
+                         runtime: Runtime = Depends(rt)):
+    """The fetch ledger — includes failed/blocked attempts (never hidden)."""
+    user = uid(runtime, user_id)
+    return {"fetches": runtime.cognition.research_engine.fetches(user, session_id)}
+
+
+@app.get("/api/research/v2/{session_id}/evidence")
+def get_research_evidence(session_id: str, user_id: str | None = None,
+                          runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"evidence": runtime.cognition.research_engine.evidence(user, session_id)}
+
+
+@app.get("/api/research/v2/{session_id}/claims")
+def get_research_claims(session_id: str, user_id: str | None = None,
+                        runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"claims": runtime.cognition.research_engine.claims(user, session_id)}
+
+
+@app.get("/api/research/v2/{session_id}/conflicts")
+def get_research_conflicts(session_id: str, user_id: str | None = None,
+                           runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"conflicts": runtime.cognition.research_engine.conflicts(user, session_id)}
+
+
+@app.get("/api/research/v2/{session_id}/world-updates")
+def get_research_world_updates(session_id: str, user_id: str | None = None,
+                               runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
+    return {"world_updates": runtime.cognition.research_engine.world_updates(user, session_id)}
+
+
+@app.post("/api/research/v2/{session_id}/world-updates/propose")
+def propose_research_world_update(session_id: str, req: ResearchWorldProposeRequest,
+                                  runtime: Runtime = Depends(rt)):
+    """Propose a bounded, capped-confidence World Model update from a claim.
+
+    This never changes the World Model by itself — see the /apply route.
+    """
+    user = uid(runtime, req.user_id)
+    try:
+        update = runtime.cognition.research_engine.propose_world_update(
+            user, session_id, req.claim_id, req.kind, req.label)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"world_update": update}
+
+
+@app.post("/api/research/v2/world-updates/{update_id}/apply")
+def apply_research_world_update(update_id: str, req: ResearchWorldApplyRequest,
+                                runtime: Runtime = Depends(rt)):
+    """Apply a PROPOSED world update. Requires explicit confirm=True."""
+    user = uid(runtime, req.user_id)
+    try:
+        result = runtime.cognition.research_engine.apply_world_update(
+            user, update_id, confirm=req.confirm)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return result
 
 
 # -------------------------------------------------------------- maintenance

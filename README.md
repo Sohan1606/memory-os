@@ -1,6 +1,6 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.4.1 — Experience → Skill → Principle.**
+**MEMORY//OS V8.4.3 — Connected Research + External World Intelligence.**
 
 A continuously maintained personal cognitive environment, operated through
 conversation. It remembers, learns evidence-backed Skills from meaningful
@@ -42,6 +42,29 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V8.4.3
+
+The system can now fetch real, explicit http(s) URLs — supplied by you or a
+tool call, **never invented** — through an SSRF-defended pipeline, and turn
+what it genuinely retrieves into auditable evidence and bounded-confidence
+claims. There is no search engine: nothing is discovered on its own.
+Corroboration counts independent domains, not repeated pages; conflicting
+claims from different sources are both kept, never silently resolved.
+External evidence never becomes a memory, skill, principle, or belief by
+itself — it can only reach the World Model through an explicit
+propose-then-confirm step, capped at a low confidence and tagged
+`source: "research"` so it stays visibly distinct from what you told the
+system directly. Every failed or blocked fetch is reported honestly (with
+its exact reason) rather than presented as "nothing found." Six new
+conversational tools (`start_research`, `fetch_research_source`,
+`list_research`, `inspect_research`, `inspect_research_evidence`,
+`inspect_research_claims`) and a new Observatory "Connected Research" panel
+make the whole SOURCE → FETCH → EVIDENCE → CLAIM → CONFLICT → WORLD UPDATE
+pipeline inspectable end to end.
+
+Full detail: [`docs/V8.4.3.md`](docs/V8.4.3.md) · verification:
+[`docs/V8.4.3-VERIFICATION.md`](docs/V8.4.3-VERIFICATION.md).
 
 ## New in V8.4.1
 
@@ -125,10 +148,16 @@ log are fully real in demo mode** — only free-form model tool choice is absent
 
 ## Verified results
 
-- Backend full suite: **689 passed, 19 skipped**; the two V8.4.1
-  real-model tests are explicit skips because no Ollama server was reachable
+- Backend full suite: **786 passed, 10 skipped** (12 `slow`-marked tests
+  deselected by default); skips are explicit — real-model tests without a
+  reachable Ollama server, live-network research tests report NOT VERIFIED
+  only if outbound network is genuinely unavailable (it was available and
+  ran for real in this build's verification)
+- V8.4.3 Connected Research suite: **72/72 passed** across SSRF/security
+  (36), engine integration (18), live real-network fetches (5), DB
+  migration (2), and API/tools/explanation integration (11)
 - V8.4.1 deterministic core/integration/scenarios: **38/38 passed**
-- `npm run lint` — clean · `npm run typecheck` — clean · `npm run build` — 8/8 static pages
+- `npm run lint` — clean · `npm run typecheck` — clean · `npm run build` — 6/6 static pages
 - Browser QA: **87/87** V8.4.1 assertions plus **25/25** Observatory
   regression assertions; desktop 1440×900 + mobile 390×844, zero console/page/HTTP errors
 - Dependency audit: npm 0 vulnerabilities; Python's fixable multipart
@@ -166,6 +195,10 @@ hardcoded datasets and no fake buttons.
 | [`docs/V8.4.1.md`](docs/V8.4.1.md) | Evidence-backed Experience → Skill → Principle architecture and behavior |
 | [`docs/V8.4.1-AUDIT.md`](docs/V8.4.1-AUDIT.md) | 38-area and scenarios A–H acceptance audit |
 | [`docs/V8.4.1-VERIFICATION.md`](docs/V8.4.1-VERIFICATION.md) | Exact backend, frontend, browser, security and artifact gates |
+| [`docs/V8.4.2.md`](docs/V8.4.2.md) | Auditable Explanation Engine architecture and explanation classes |
+| [`docs/V8.4.2-VERIFICATION.md`](docs/V8.4.2-VERIFICATION.md) | V8.4.2 backend/frontend verification gates |
+| [`docs/V8.4.3.md`](docs/V8.4.3.md) | Connected Research + External World Intelligence architecture, security, data model |
+| [`docs/V8.4.3-VERIFICATION.md`](docs/V8.4.3-VERIFICATION.md) | V8.4.3 backend/frontend/security/live-network verification gates |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test coverage, verified results, bugs caught |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Visual language, motion, the scroll sequence |
 | [`PROJECT_STATUS.md`](PROJECT_STATUS.md) | Honest status matrix and limitations |

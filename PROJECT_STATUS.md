@@ -10,6 +10,14 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 
 | Item | Status | Evidence |
 |---|---|---|
+| V8.4.3 backend fast gate | **PASS** | `pytest -m "not slow"` → **786 passed, 10 skipped, 12 deselected** in ~213 s |
+| V8.4.3 Connected Research security suite | **PASS** | `test_v843_net_security.py` → **36 passed** — SSRF (loopback/private/link-local/metadata/CGNAT/multicast/IPv4-mapped-IPv6/alt-IP-encodings/unsafe-scheme/userinfo/port-policy), DNS rebinding via a real resolver, malformed-URL handling, resource limits (oversized response, redirect loop, timeout, unsupported content-type) |
+| V8.4.3 Connected Research engine suite | **PASS** | `test_v843_research_engine.py` → **18 passed** — session lifecycle, failed-fetch persistence, SSRF-blocked ledger entries, evidence provenance, single-source confidence cap, same-domain-≠-independent corroboration, both-sides-preserved conflicts, prompt-injection flagging without execution, world-update propose/confirm/apply/double-apply-rejected, cross-user isolation, source-limit enforcement |
+| V8.4.3 live real-network suite | **PASS** | `test_v843_live_network.py` → **5 passed** — genuine outbound HTTPS fetch to example.com, a real research session against a live page, a real httpbin.org redirect-to-private-IP blocked end to end, a real DNS failure against a nonexistent domain, honest network-availability self-report (would report NOT VERIFIED/skip if network were unavailable — it was available here) |
+| V8.4.3 DB migration test | **PASS** | `test_v843_migration.py` → **2 passed** — a real V8.4.2-shaped SQLite file (built from `SCHEMA`+`SCHEMA_V83`+`SCHEMA_V841`+`SCHEMA_V842` only, pre-populated with representative rows) opens under V8.4.3 startup, gains all 7 new `research_*` tables, and every pre-existing row survives untouched; idempotent on a second open |
+| V8.4.3 API/tools/explanation suite | **PASS** | `test_v843_api_and_tools.py` → **11 passed** — full `/api/research/v2/*` lifecycle via `TestClient`, world-update confirm-required contract, cross-user 404s, SSRF block via the API layer, legacy `/api/research` contract unaffected, all 6 new cognitive tools present and functional, `ExplanationEngine.explain(subject_kind="research_claim", ...)` producing `RESEARCH_EVIDENCE` explanations with a capped-confidence decisive factor, honest `INSUFFICIENT EVIDENCE` for unknown research subjects |
+| V8.4.3 frontend | **PASS** | `npm ci` clean install (322 packages, 0 vulnerabilities); `npm run typecheck` clean; `npm run lint` → `✔ No ESLint warnings or errors`; `npm run build` → 6/6 static pages including `/observatory` with the new Research panel |
+| V8.4.3 live browser QA | **PASS** | Backend (uvicorn 0.0.0.0:8000) + frontend (`next start` 0.0.0.0:3000) run together; through the same-origin `/api/*` proxy: create session → real fetch to `https://example.com/` → 2 evidence excerpts / 2 claims extracted → propose world update → confirm+apply → World Model shows the new entity tagged `source: "research"` at capped confidence; separately, fetches to `169.254.169.254` and `127.0.0.1:1` both correctly returned `BLOCKED`/`PRIVATE_ADDRESS` through the live browser-facing path |
 | Backend test suite | **PASS** | V8.4.1 full `python -m pytest` → **689 passed, 19 skipped** in 200.68 s; fast gate → **689 passed, 10 skipped, 9 deselected** in 198.88 s |
 | V8.3.1.1 mission action suite | **PASS** | `pytest tests/test_v8311_mission_actions.py` → **28 passed** in 4.75 s |
 | Browser QA — v8.3.1.1 (Playwright) | **PASS** | executed on this build: 5 routes × 1440×900 and 390×844 → **0 console errors, 0 page errors, 0 overflow, 0 HTTP ≥400, no error overlay**; five-turn create→pause→resume driven through the Workspace UI, final visible response reported the mission **active**, Observatory showed **ACTIVE**, activity trail showed `Tool selected: resume_mission` |
@@ -38,6 +46,27 @@ Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 | Mobile layout (390 px) | **PASS** | 0 px horizontal overflow on landing and workspace |
 | Reduced motion | **PASS** | full content renders; sequence pins to a static frame |
 | No remote runtime assets | **PASS** | system fonts, locally generated frames, no CDN |
+
+## V8.4.3 feature matrix
+
+| Feature | Status | Notes |
+|---|---|---|
+| Real http(s) fetch pipeline | **PASS** | `net_security.py`; user/tool-supplied URLs only, never invented |
+| SSRF defense (pre-DNS + post-DNS + per-redirect) | **PASS** | connection pinning defeats DNS rebinding; verified against a real resolver and a real redirecting server (httpbin.org) |
+| Resource limits | **PASS** | timeouts, 2 MB response cap, 5-redirect cap, content-type allowlist — all independently tested |
+| Prompt-injection defense | **PASS** | fetched content flagged, never executed as instructions |
+| Deterministic evidence/claim extraction | **PASS, HONESTLY LABELED** | sentence-splitting + lexical similarity; documented as non-semantic |
+| Source-aware corroboration | **PASS** | same-domain repeats do not inflate `independent_domain_count` |
+| Conflict preservation | **PASS** | both conflicting claims kept, `research_conflicts` row created |
+| Bounded World Model integration | **PASS** | propose → `confirm=True` → apply via existing `WorldStateV2.reconcile()`; double-apply rejected |
+| No auto-promotion to memory/skill/principle | **PASS** | verified nothing in the pipeline writes to those tables |
+| New `/api/research/v2/*` routes | **PASS** | 14 routes, user-scoped, cross-user 404 verified |
+| Legacy `/api/research` contract | **PASS, UNCHANGED** | still returns `BLOCKED` / `RESEARCH PROVIDER NOT CONFIGURED` |
+| 6 new cognitive tools | **PASS** | `start_research`, `fetch_research_source`, `list_research`, `inspect_research`, `inspect_research_evidence`, `inspect_research_claims` |
+| Explanation engine integration | **PASS** | `RESEARCH_EVIDENCE`/`RESEARCH_CONFLICT` classes added to the existing `ExplanationEngine` |
+| Additive DB migration | **PASS** | proven against a real pre-V8.4.3 database file |
+| Observatory Research panel | **PASS** | source/evidence/claim/world-update visually distinct; failures never look like "no information found" |
+| Live outbound network test suite | **PASS (network available in this build)** | would report NOT VERIFIED/skip honestly if network were unreachable |
 
 ## Feature matrix
 

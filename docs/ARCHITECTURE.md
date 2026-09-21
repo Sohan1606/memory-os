@@ -343,3 +343,107 @@ with client defaults.
 
 Full lifecycle, thresholds, correction semantics and limitations are documented
 in [V8.4.1.md](V8.4.1.md).
+
+## V8.4.3 — Connected Research + External World Intelligence
+
+V8.4.3 adds a real external-fetch capability without adding a parallel
+event bus, explanation engine, or world-state writer. The V8.3
+`ResearchMode` / `ConnectorRegistry` "NOT CONFIGURED" state machine in
+`connectors.py` is untouched; this is an additive, always-available
+capability that answers a different question — "fetch this real URL and
+tell me honestly what you found."
+
+```text
+ explicit URL (user or tool call, never invented)
+          │
+          ▼
+   net_security.fetch()  — SSRF defense (pre-DNS + post-DNS + per-redirect),
+          │                 connection pinning, timeouts, byte/redirect limits
+          ▼
+   content_safety.scan() — flags prompt-injection patterns, never executes them
+          │
+          ▼
+   ResearchEngine (app/cognition/research.py)
+          │
+          ├── research_sources / research_fetches  (audit ledger — failures included)
+          ├── research_evidence                    (deterministic excerpts)
+          ├── research_claims / research_conflicts (capped confidence, both sides kept)
+          └── research_world_updates ──► WorldStateV2.reconcile()  (explicit confirm=True only)
+                                              │
+                                              ▼
+                                   existing World Model (tagged source="research")
+```
+
+### Composition
+
+`Cognition.__init__` constructs `self.research_engine = ResearchEngine(db,
+self.bus, self.world_v2)` alongside (not instead of) the existing
+`self.research = ResearchMode(...)`. The engine receives the *same*
+`EventBus` and `WorldStateV2` instances used by every other subsystem — no
+second bus, no second world-state writer.
+
+### Storage boundary
+
+`SCHEMA_V843` is executed after `SCHEMA_V842`. It creates seven additive
+tables (`research_sessions_v2` — deliberately distinct from the existing
+V8.3 `research_sessions` — plus `research_sources`, `research_fetches`,
+`research_evidence`, `research_claims`, `research_conflicts`,
+`research_world_updates`). A dedicated migration test
+(`tests/test_v843_migration.py`) proves a real pre-V8.4.3 database survives
+this addition with all existing rows intact.
+
+### Security boundary
+
+Every fetch — with no exception — goes through
+`app/cognition/net_security.py`. Structural validation happens before any
+DNS resolution; IP-class validation happens after DNS resolution; the
+actual TCP connection is pinned to the exact validated IP (defeating DNS
+rebinding); and every redirect hop repeats the full validation from
+scratch. This is the single choke point for all outbound research traffic
+— `ResearchEngine` never opens a socket itself.
+
+### Confidence boundary
+
+`research_evidence` and `research_claims` intentionatlly keep
+`source_quality`, `evidence_strength`, `freshness`, `corroboration_count`,
+`independent_domain_count` and `claim_confidence` as separate fields.
+`claim_confidence` is capped (`SINGLE_SOURCE_CONFIDENCE_CAP=0.55`,
+`CORROBORATED_CONFIDENCE_CAP=0.80`) and a further, lower
+`WORLD_UPDATE_CONFIDENCE_CAP=0.60` bounds anything reaching the World
+Model — evidence is never silently promoted to certainty.
+
+### World Model boundary
+
+`propose_world_update()` only ever creates a `PROPOSED` row; the World
+Model itself is unmodified until `apply_world_update(..., confirm=True)`
+is called explicitly, which then calls the *existing*
+`WorldStateV2.reconcile()` — the identical verdict machinery
+(`keep`/`supersede`/`merge`/`flag`/`downgrade`/`ignore`) every other
+subsystem already uses. A double-apply raises `ValueError` rather than
+silently no-opping.
+
+### Conversation boundary
+
+Six new cognitive tools are ordinary `StructuredTool.from_function`
+registrations at the existing `build_cognitive_tools()` composition point,
+resolved through the same conversational-focus mechanism as `missions`.
+No keyword-only router was introduced — the model decides when to call
+`start_research`/`fetch_research_source` based on the system prompt's
+"CONNECTED RESEARCH" guidance.
+
+### Explanation boundary
+
+`ExplanationEngine` gained `RESEARCH_EVIDENCE`/`RESEARCH_CONFLICT` classes
+and `explain_research_*` methods dispatched from its existing single
+`explain()` entrypoint — not a second explanation system.
+
+### Frontend boundary
+
+`ResearchPanel.tsx` owns no research state of its own; it loads typed API
+responses from `/api/research/v2/*` and renders sources, evidence, claims,
+conflicts and world updates in four visually distinct registers so a raw
+fetched page is never confused with a claim, and a claim is never confused
+with an applied World Model fact.
+
+Full lifecycle, data model, security details and known limitations are
+documented in [V8.4.3.md](V8.4.3.md).
