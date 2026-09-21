@@ -432,3 +432,18 @@ weakened just to make a test pass.
 
 Exact results for the release candidate are recorded in
 [V8.4.3-VERIFICATION.md](V8.4.3-VERIFICATION.md).
+
+---
+
+## V8.4.4 portability and recovery tests
+
+`backend/tests/test_v844_portability.py` covers deterministic serialization,
+manifest/object hashes, package inspection, corruption and manifest tampering,
+same-id divergent conflicts, selective restore, dependencies, transaction
+repeatability, owner scoping, path traversal, and EventBus lifecycle events.
+
+The release gate also checks API multipart staging, validation-before-restore,
+dry-run blockers, explicit confirmation, restore history, the structured
+portability tools, frontend typecheck/lint/build, clean extraction, and release
+ZIP contents/hash. A blocked or failed restore must never be represented as a
+successful UI operation.

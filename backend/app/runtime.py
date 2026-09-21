@@ -15,6 +15,7 @@ from .persistence.db import Database
 from .memory.langmem_adapter import LangMemExtractor
 from .providers.base import build_provider
 from .voice.transcription import Transcriber
+from .portability import PortabilityService
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,13 @@ class Runtime:
         # v8 cognitive layer. Constructed last: it introspects the runtime it
         # belongs to (SelfModel reports on provider/vectors/voice/langmem).
         self.cognition = Cognition(self.db, self.memory, self)
+        # V8.4.4 extends the same persistence and EventBus with a user-owned
+        # package lifecycle. The service is attached to cognition so the agent
+        # tools and ExplanationEngine share one composition root.
+        self.portability = PortabilityService(
+            self.db, self.cognition.bus, self.settings,
+            explanation_engine=self.cognition.explanation_engine)
+        self.cognition.portability = self.portability
         # v8.2: give the agent its cognitive collaborators now that they exist.
         # Done after construction because Cognition introspects the runtime,
         # which already holds the agent - this breaks the circular dependency
@@ -145,7 +153,12 @@ class Runtime:
             # `version` is the established V8.2 API-contract marker retained for
             # backwards compatibility; `release` identifies the running slice.
             "version": "8.2",
-            "release": "8.4.2",
+            "release": "8.4.4",
+            "portability": {
+                "format": "memory-os-export",
+                "schema": "8.4.4",
+                "limits": self.portability.limits,
+            },
         }
 
     def close(self) -> None:

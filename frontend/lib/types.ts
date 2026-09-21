@@ -897,3 +897,59 @@ export interface ResearchFetchResult {
   error_code?: string | null;
   detail: string;
 }
+
+// --------------------------------------------------------------- V8.4.4
+export interface PortabilityExport {
+  id: string;
+  status: string;
+  package_sha256: string;
+  created_at: string;
+  completed_at?: string | null;
+  object_counts: Record<string, number>;
+  integrity?: { status: string; integrity_valid?: boolean };
+}
+
+export interface PortabilityImport {
+  id: string;
+  filename: string;
+  state: string;
+  package_sha256: string;
+  created_at: string;
+  validated_at?: string | null;
+}
+
+export interface RestoreConflict {
+  id: string;
+  table_name: string;
+  object_key: string;
+  state: string;
+  reason: string;
+  resolution?: string | null;
+  local?: Record<string, unknown>;
+  imported?: Record<string, unknown>;
+}
+
+export interface PortabilityPlan {
+  id: string;
+  import_id: string;
+  selected_domains: string[];
+  tables: Record<string, number>;
+  records: number;
+  inserts: number;
+  updates: number;
+  skips: number;
+  conflicts: RestoreConflict[];
+  blockers: Record<string, unknown>[];
+  status: string;
+}
+
+export interface RestoreOperation {
+  id: string;
+  import_id: string;
+  status: string;
+  applied_count: number;
+  skipped_count: number;
+  selected_domains: string[];
+  started_at: string;
+  finished_at?: string | null;
+}

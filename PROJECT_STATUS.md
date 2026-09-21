@@ -1,16 +1,34 @@
 # PROJECT STATUS
 
+**Current milestone: MEMORY//OS V8.4.4 — Data Portability + Export + Recovery.**
+
 Every status below was produced by a command that was actually executed. Nothing
 is aspirational. Where a capability is absent it is marked
 `OPTIONAL / NOT CONFIGURED` rather than given a false PASS.
 
 Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
 
+## V8.4.4 portability status
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Versioned user-owned export package | **PASS** | `PortabilityService`, manifest, deterministic table JSON, relationship file, human report |
+| Hash/integrity verification | **PASS** | SHA-256 manifest/file/object checks and corruption/tamper tests |
+| Import validation before live mutation | **PASS** | Staged ZIP, bounded parser, schema/structural/relationship checks and validation result table |
+| Explicit conflict model | **PASS** | duplicate/local_newer/imported_newer/divergent records in `portability_conflicts`; no silent overwrite |
+| Dry-run and selective restore | **PASS** | Domain dependency expansion, insert/update/skip plan and unresolved blockers |
+| Transactional restore and rollback audit | **PASS** | One SQLite transaction, rollback on failure, repeatable restore and EventBus lifecycle events |
+| Security/resource limits | **PASS** | ZIP path/symlink/ratio/size/count/depth/time limits; no unsafe deserialization |
+| Existing persistence/event/explanation architecture | **PASS** | Additive `SCHEMA_V844`; existing Database, EventBus and ExplanationEngine reused |
+| API and structured tools | **PASS** | `/api/portability/v1/*` plus seven real cognitive tools |
+| Observatory surface | **PASS** | Real package status, integrity, validation, dry-run, conflict and recovery history panel |
+
 ## Build and test matrix
 
 | Item | Status | Evidence |
 |---|---|---|
-| V8.4.3 backend fast gate | **PASS** | `pytest -m "not slow"` → **786 passed, 10 skipped, 12 deselected** in ~213 s |
+| V8.4.4 backend full suite | **PASS** | `pytest -q` → exit 0; **815 collected**, with the repository's explicit environment-dependent Ollama skips retained |
+| V8.4.3 backend fast gate (preserved baseline) | **PASS** | `pytest -m "not slow"` → **786 passed, 10 skipped, 12 deselected** |
 | V8.4.3 Connected Research security suite | **PASS** | `test_v843_net_security.py` → **36 passed** — SSRF (loopback/private/link-local/metadata/CGNAT/multicast/IPv4-mapped-IPv6/alt-IP-encodings/unsafe-scheme/userinfo/port-policy), DNS rebinding via a real resolver, malformed-URL handling, resource limits (oversized response, redirect loop, timeout, unsupported content-type) |
 | V8.4.3 Connected Research engine suite | **PASS** | `test_v843_research_engine.py` → **18 passed** — session lifecycle, failed-fetch persistence, SSRF-blocked ledger entries, evidence provenance, single-source confidence cap, same-domain-≠-independent corroboration, both-sides-preserved conflicts, prompt-injection flagging without execution, world-update propose/confirm/apply/double-apply-rejected, cross-user isolation, source-limit enforcement |
 | V8.4.3 live real-network suite | **PASS** | `test_v843_live_network.py` → **5 passed** — genuine outbound HTTPS fetch to example.com, a real research session against a live page, a real httpbin.org redirect-to-private-IP blocked end to end, a real DNS failure against a nonexistent domain, honest network-availability self-report (would report NOT VERIFIED/skip if network were unavailable — it was available here) |

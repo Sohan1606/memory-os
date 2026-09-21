@@ -928,6 +928,95 @@ CREATE INDEX IF NOT EXISTS idx_research_world_updates_user
     ON research_world_updates(user_id, id DESC);
 """
 
+# V8.4.4 data portability/recovery tables. These are additive operational
+# records in the existing database; exported cognitive data continues to live
+# in its original tables and is never copied into a second store.
+SCHEMA_V844 = """
+CREATE TABLE IF NOT EXISTS portability_exports (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    package_path TEXT NOT NULL,
+    package_sha256 TEXT NOT NULL,
+    manifest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    selected_domains TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_portability_exports_user
+    ON portability_exports(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS portability_imports (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    package_path TEXT NOT NULL,
+    package_sha256 TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'RECEIVED',
+    manifest TEXT,
+    validation_json TEXT,
+    created_at TEXT NOT NULL,
+    validated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_portability_imports_user
+    ON portability_imports(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS portability_validation_results (
+    id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portability_validation_import
+    ON portability_validation_results(import_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS portability_restore_plans (
+    id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    selected_domains TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portability_plans_import
+    ON portability_restore_plans(import_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS portability_conflicts (
+    id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    object_key TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    local_record TEXT NOT NULL,
+    imported_record TEXT NOT NULL,
+    resolution TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portability_conflicts_import
+    ON portability_conflicts(import_id, state, created_at);
+
+CREATE TABLE IF NOT EXISTS portability_operations (
+    id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    selected_domains TEXT NOT NULL,
+    applied_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    detail TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_portability_operations_user
+    ON portability_operations(user_id, started_at DESC);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
@@ -977,6 +1066,7 @@ class Database:
             conn.executescript(SCHEMA_V841)
             conn.executescript(SCHEMA_V842)
             conn.executescript(SCHEMA_V843)
+            conn.executescript(SCHEMA_V844)
         self._migrate()
 
     def _migrate(self) -> None:

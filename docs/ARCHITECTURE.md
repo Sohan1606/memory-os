@@ -447,3 +447,35 @@ with an applied World Model fact.
 
 Full lifecycle, data model, security details and known limitations are
 documented in [V8.4.3.md](V8.4.3.md).
+
+---
+
+## V8.4.4 — Portability and recovery extension
+
+The portability path is an additive extension of the existing composition root:
+
+```text
+Runtime
+ ├── Database ───────────── existing cognitive tables + SCHEMA_V844 audit tables
+ ├── Cognition ──────────── existing EventBus + ExplanationEngine
+ └── PortabilityService ─── deterministic package / validate / conflict / restore
+```
+
+`PortabilityService` reads authoritative rows from the existing database,
+serializes them into a bounded versioned package, and applies selected records
+through the same database connection in one transaction. It does not maintain
+another memory table, vector store, event bus, or world model. Vector indexes
+remain rebuildable derived state; source memory and lifecycle rows are portable.
+
+Restore is deliberately a two-phase operation. A package is first validated and
+conflicts are persisted. A dry-run then calculates inserts, explicit updates,
+skips and dependency expansion. Only a request with `confirm=true` and an
+explicit choice for every selected divergent conflict can enter the transaction.
+Existing rows are preserved by default. A rollback-safe failure leaves live
+state unchanged and is recorded through the existing EventBus.
+
+The manifest and integrity files use SHA-256 hashes over canonical UTF-8 JSON.
+Archive paths and contents are bounded and treated as untrusted; imported text
+is data and is never executed as instructions. `ExplanationEngine` consumes the
+persisted manifest, validation, conflict and operation records to explain only
+what happened and why a restore was blocked or rolled back.

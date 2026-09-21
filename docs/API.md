@@ -554,3 +554,61 @@ POST /api/explanations/query
   "user_id": "demo-user"
 }
 ```
+
+---
+
+# V8.4.4 — Data portability and recovery
+
+All routes below are additive and user-scoped through the existing `user_id`
+namespace. They do not change the legacy `/api/export` or `/api/import`
+contracts.
+
+## Export packages
+
+| Method | Route | Purpose |
+|---|---|---|
+| POST | `/api/portability/v1/exports` | Create a complete or domain-selected package. Body: `{ "domains": ["memories", "research"] }`; omit for complete export. |
+| GET | `/api/portability/v1/exports` | List real packages, counts and current integrity result |
+| GET | `/api/portability/v1/exports/{id}` | Inspect manifest, counts, hashes and status |
+| GET | `/api/portability/v1/exports/{id}/manifest` | Retrieve manifest and verification result |
+| POST | `/api/portability/v1/exports/{id}/verify` | Re-verify package hashes |
+| GET | `/api/portability/v1/exports/{id}/download` | Download the real ZIP package |
+
+The package contains `manifest.json`, `integrity.json`, deterministic
+`data/<table>.json`, `relationships.json`, `metadata/configuration.json`, and
+`report.md`. It contains no runtime credentials or secrets.
+
+## Import and restore
+
+`POST /api/portability/v1/imports` is multipart with field `file`. Staging only
+writes an untrusted package under the configured data directory and emits
+`import.started`; it does not touch live cognitive tables.
+
+| Method | Route | Purpose |
+|---|---|---|
+| GET | `/api/portability/v1/imports` | List staged packages for this user |
+| GET | `/api/portability/v1/imports/{id}` | Inspect staged package and validation result |
+| POST | `/api/portability/v1/imports/{id}/validate` | Manifest, schema, hash, structure and relationship validation |
+| POST | `/api/portability/v1/imports/{id}/dry-run` | Body `{ "domains": [], "resolutions": {} }`; creates a read-only restore plan |
+| GET | `/api/portability/v1/imports/{id}/conflicts` | List explicit conflicts and local/imported records |
+| POST | `/api/portability/v1/imports/{id}/restore-selected` | Body requires `confirm: true`, optional domains and conflict resolutions |
+| POST | `/api/portability/v1/imports/{id}/restore` | Alias for `restore-selected` |
+| GET | `/api/portability/v1/restore-history` | Applied, failed and rolled-back operations |
+| GET | `/api/portability/v1/imports/{id}/explanation` | Evidence-backed portability explanation |
+
+Conflict resolutions are keyed by returned conflict id and are exactly one of
+`skip`, `keep_local`, or `replace`. No divergent conflict may be applied without
+one of those choices. `replace` is never implicit. `confirm: false` returns
+HTTP 400 and performs no restore.
+
+A successful apply returns an operation with `applied` and `skipped` counts.
+The SQLite transaction rolls back on any failure; the event log then records
+`restore.failed` and `restore.rolled_back`.
+
+## V8.4.4 conversational tools
+
+`start_export`, `inspect_export`, `validate_import`, `dry_run_restore`,
+`inspect_restore_conflicts`, `restore_selected`, and `inspect_restore_history`
+are structured tools bound to the authenticated runtime namespace. They return
+JSON status envelopes and never invent package ids, conflict outcomes or
+recovery history.

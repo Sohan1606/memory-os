@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .cognition.autonomy import LEVELS
 from .cognition.events import EVENT_TYPES
@@ -37,6 +37,8 @@ from .schemas.api import (DecisionOutcomeRequest, ExperienceCreateRequest,
                           SkillCandidateRequest, ExplanationQueryRequest)
 from .schemas.api import (ResearchFetchRequest, ResearchSessionCreateRequest,
                           ResearchWorldApplyRequest, ResearchWorldProposeRequest)
+from .schemas.portability import (ExportCreateRequest, RestoreApplyRequest,
+                                  RestoreDryRunRequest)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -326,6 +328,160 @@ def import_memories(req: ImportRequest, runtime: Runtime = Depends(rt)):
                               source="import", allow_duplicate=False)
         imported += 1
     return {"imported": imported, "total": len(runtime.memory.list(u))}
+
+
+# ------------------------------------------------ V8.4.4 portability/recovery
+@app.post("/api/portability/v1/exports")
+def create_portability_export(req: ExportCreateRequest, runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    try:
+        return runtime.portability.create_export(user, req.domains)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/portability/v1/exports")
+def list_portability_exports(user_id: str | None = None, limit: int = 50,
+                             runtime: Runtime = Depends(rt)):
+    return {"exports": runtime.portability.list_exports(uid(runtime, user_id), limit=limit)}
+
+
+@app.get("/api/portability/v1/exports/{export_id}")
+def inspect_portability_export(export_id: str, user_id: str | None = None,
+                               runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.portability.inspect_export(uid(runtime, user_id), export_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/portability/v1/exports/{export_id}/manifest")
+def portability_export_manifest(export_id: str, user_id: str | None = None,
+                                runtime: Runtime = Depends(rt)):
+    try:
+        inspected = runtime.portability.inspect_export(uid(runtime, user_id), export_id)
+        return {"manifest": inspected["manifest"], "integrity": inspected["integrity"]}
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/portability/v1/exports/{export_id}/verify")
+def verify_portability_export(export_id: str, user_id: str | None = None,
+                              runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.portability.verify_export(uid(runtime, user_id), export_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/portability/v1/exports/{export_id}/download")
+def download_portability_export(export_id: str, user_id: str | None = None,
+                                runtime: Runtime = Depends(rt)):
+    try:
+        path = runtime.portability.export_path(uid(runtime, user_id), export_id)
+    except (KeyError, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="application/zip", filename=f"{export_id}.zip")
+
+
+@app.post("/api/portability/v1/imports")
+async def stage_portability_import(file: UploadFile = File(...), user_id: str | None = None,
+                                   runtime: Runtime = Depends(rt)):
+    # Read one byte past the configured limit so oversized input is rejected
+    # without unbounded buffering.
+    limit = runtime.portability.limits["package_bytes"]
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail="Package exceeds the configured maximum size.")
+    try:
+        return runtime.portability.stage_import(uid(runtime, user_id), data, file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/portability/v1/imports")
+def list_portability_imports(user_id: str | None = None, limit: int = 50,
+                             runtime: Runtime = Depends(rt)):
+    rows = runtime.db.query(
+        "SELECT id,filename,state,package_sha256,created_at,validated_at FROM portability_imports "
+        "WHERE user_id=? ORDER BY created_at DESC LIMIT ?", (uid(runtime, user_id), min(max(limit, 1), 200)))
+    return {"imports": [dict(row) for row in rows]}
+
+
+@app.get("/api/portability/v1/imports/{import_id}")
+def inspect_portability_import(import_id: str, user_id: str | None = None,
+                                runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.portability.inspect_import(uid(runtime, user_id), import_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/portability/v1/imports/{import_id}/validate")
+def validate_portability_import(import_id: str, user_id: str | None = None,
+                                 runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.portability.validate_import(uid(runtime, user_id), import_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/portability/v1/imports/{import_id}/dry-run")
+def dry_run_portability_restore(import_id: str, req: RestoreDryRunRequest,
+                                runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    try:
+        return runtime.portability.dry_run(user, import_id, req.domains, req.resolutions)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/portability/v1/imports/{import_id}/conflicts")
+def inspect_portability_conflicts(import_id: str, user_id: str | None = None,
+                                  state: str | None = None,
+                                  runtime: Runtime = Depends(rt)):
+    try:
+        conflicts = runtime.portability.list_conflicts(uid(runtime, user_id), import_id, state)
+        if runtime.portability._import_row(uid(runtime, user_id), import_id) is None:
+            raise KeyError("Import session not found.")
+        return {"conflicts": conflicts}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/portability/v1/imports/{import_id}/restore")
+@app.post("/api/portability/v1/imports/{import_id}/restore-selected")
+def restore_portability_selected(import_id: str, req: RestoreApplyRequest,
+                                 runtime: Runtime = Depends(rt)):
+    user = uid(runtime, req.user_id)
+    try:
+        return runtime.portability.apply_restore(user, import_id, confirm=req.confirm,
+                                                 domains=req.domains, resolutions=req.resolutions)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409 if "conflict" in str(exc).lower() else 400,
+                            detail=str(exc)) from exc
+
+
+@app.get("/api/portability/v1/restore-history")
+def portability_restore_history(user_id: str | None = None, limit: int = 50,
+                                runtime: Runtime = Depends(rt)):
+    return {"operations": runtime.portability.restore_history(uid(runtime, user_id), limit)}
+
+
+@app.get("/api/portability/v1/imports/{import_id}/explanation")
+def portability_import_explanation(import_id: str, intent: str = "why",
+                                   user_id: str | None = None,
+                                   runtime: Runtime = Depends(rt)):
+    try:
+        return runtime.portability.explain(uid(runtime, user_id), "import", import_id, intent)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/reset")

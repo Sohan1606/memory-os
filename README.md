@@ -1,6 +1,6 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.4.3 — Connected Research + External World Intelligence.**
+**MEMORY//OS V8.4.4 — Data Portability + Export + Recovery.**
 
 A continuously maintained personal cognitive environment, operated through
 conversation. It remembers, learns evidence-backed Skills from meaningful
@@ -42,6 +42,25 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V8.4.4
+
+V8.4.4 adds real user-owned data portability and recovery. A versioned ZIP
+package contains the complete persisted cognitive surface, deterministic JSON,
+relationships, provenance, per-file/object SHA-256 hashes and a human-readable
+report. Sensitive credentials and runtime state are excluded. Imports are
+staged as untrusted input, validated before live state is touched, conflict
+analysed, dry-run planned, and applied only after explicit confirmation inside a
+rollback-safe SQLite transaction. Existing state is never silently overwritten
+or deleted. The Observatory now exposes real export status, package integrity,
+validation, conflict details, dry-run blockers and restore history.
+
+New structured tools: `start_export`, `inspect_export`, `validate_import`,
+`dry_run_restore`, `inspect_restore_conflicts`, `restore_selected`, and
+`inspect_restore_history`. New API namespace: `/api/portability/v1/*`.
+
+Full detail: [`docs/V8.4.4.md`](docs/V8.4.4.md) · verification:
+[`docs/V8.4.4-VERIFICATION.md`](docs/V8.4.4-VERIFICATION.md).
 
 ## New in V8.4.3
 
@@ -199,6 +218,8 @@ hardcoded datasets and no fake buttons.
 | [`docs/V8.4.2-VERIFICATION.md`](docs/V8.4.2-VERIFICATION.md) | V8.4.2 backend/frontend verification gates |
 | [`docs/V8.4.3.md`](docs/V8.4.3.md) | Connected Research + External World Intelligence architecture, security, data model |
 | [`docs/V8.4.3-VERIFICATION.md`](docs/V8.4.3-VERIFICATION.md) | V8.4.3 backend/frontend/security/live-network verification gates |
+| [`docs/V8.4.4.md`](docs/V8.4.4.md) | Data portability format, validation, conflicts, restore safety and security |
+| [`docs/V8.4.4-VERIFICATION.md`](docs/V8.4.4-VERIFICATION.md) | V8.4.4 backend/frontend/clean-room/artifact verification gates |
 | [`docs/TESTING.md`](docs/TESTING.md) | Test coverage, verified results, bugs caught |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Visual language, motion, the scroll sequence |
 | [`PROJECT_STATUS.md`](PROJECT_STATUS.md) | Honest status matrix and limitations |
