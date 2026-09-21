@@ -37,6 +37,7 @@ from .continuity import ContinuityEngine
 from .events import EventBus
 from .focus import FocusTracker
 from .user_control import CognitiveController
+from .explanation import ExplanationEngine
 
 log = logging.getLogger(__name__)
 from .influence import InfluenceLedger
@@ -148,6 +149,9 @@ class Cognition:
             db, self.bus, world_v2=self.world_v2, missions=self.missions,
             maintenance=self.maintenance, predictions=self.predictions,
             learning=self.knowledge)
+        # ---------------------------------------------------- v8.4.2 additions
+        # Advanced explanation engine: auditable explanation graphs and snapshots.
+        self.explanation_engine = ExplanationEngine(db, self.bus, self)
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,

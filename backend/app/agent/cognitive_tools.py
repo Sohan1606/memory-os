@@ -53,6 +53,25 @@ CorrectionAction = Literal[
     "retire", "weaken", "outdated", "contradict", "rescope"]
 CORRECTION_ACTIONS = ("retire", "weaken", "outdated", "contradict", "rescope")
 
+ExplanationIntent = Literal[
+    "why",
+    "why_not",
+    "why_now",
+    "what_changed",
+    "what_evidence",
+    "what_alternatives",
+    "what_caused_change",
+]
+EXPLANATION_INTENTS = (
+    "why",
+    "why_not",
+    "why_now",
+    "what_changed",
+    "what_evidence",
+    "what_alternatives",
+    "what_caused_change",
+)
+
 
 def _j(payload: Any) -> str:
     return json.dumps(payload, default=str, indent=1)
@@ -725,79 +744,311 @@ def build_cognitive_tools(
                    "detail": detail})
 
     # ============================================== EXPLANATION (§9)
-    def explain(question_kind: str = "why") -> str:
+    def explain_cognition(
+        intent: str = "why",
+        subject_id: str = "",
+        subject_kind: str = "",
+        question: str = "",
+        **kwargs: Any,
+    ) -> str:
         """
-        Evidence for the current topic. `question_kind`: why | why_now |
-        what_changed.
+        Explain WHY / WHY_NOT / WHY_NOW / WHAT_CHANGED / WHAT_EVIDENCE / WHAT_ALTERNATIVES / WHAT_CAUSED_CHANGE
+        using canonical recorded decision, event, arbitration, and causal records.
         """
-        focused = cognition.focus.current(user_id, session_id=session)
-        kind = (question_kind or "why").lower().replace(" ", "_")
-        emit("EXPLAIN", {"kind": kind, "focused": len(focused)})
+        # Handle alias question_kind if passed in kwargs
+        query_intent = kwargs.get("question_kind") or intent or "why"
+        normalized_intent = str(query_intent).lower().replace(" ", "_").strip()
+        if normalized_intent not in EXPLANATION_INTENTS:
+            normalized_intent = "why"
 
-        if kind == "what_changed":
+        focused = cognition.focus.current(user_id, session_id=session)
+        skind = (subject_kind or "").strip().lower() or None
+        sid = (subject_id or "").strip() or None
+        q = (question or "").strip() or None
+
+        emit("EXPLAIN", {
+            "intent": normalized_intent,
+            "subject_kind": skind,
+            "subject_id": sid,
+            "focused": len(focused),
+        })
+
+        if normalized_intent == "what_changed" and not skind and not sid and not focused:
             changes = cognition.world_v2.changes(user_id, limit=10)
+            if not changes:
+                return _j({"status": "NO_CHANGES_RECORDED", "detail": "Nothing has changed on record."})
+            return _j({
+                "status": "OK",
+                "query_intent": "what_changed",
+                "explanation_type": "WORLD_CHANGE",
+                "world_changes": [{
+                    "change": c["change"], "from": c["previous_state"],
+                    "to": c["new_state"], "when": c["created_at"]}
+                    for c in changes[:6]],
+                "epistemic_status": "OBSERVED",
+            })
+
+        if not skind or not sid:
+            if not focused:
+                return _j({
+                    "status": "NO_SUBJECT_IN_FOCUS",
+                    "detail": ("Nothing specific is in focus. Ask what the "
+                               "user means, or explain from the evidence "
+                               "already in context."),
+                })
+            distinct_subjects = {(f["subject_kind"], f["subject_id"]) for f in focused}
+            if len(distinct_subjects) == 1:
+                skind = skind or focused[0]["subject_kind"]
+                sid = sid or focused[0]["subject_id"]
+            elif not skind and not sid and normalized_intent not in ("what_changed", "why_now"):
+                return _j({
+                    "status": "AMBIGUOUS_REFERENCE",
+                    "detail": "Multiple subjects are in focus. Specify which one to explain.",
+                    "focused_subjects": [
+                        {"kind": f["subject_kind"], "id": f["subject_id"], "label": f.get("label")}
+                        for f in focused
+                    ],
+                })
+
+        exp_model = None
+        if hasattr(cognition, "explanation_engine"):
+            try:
+                exp_model = cognition.explanation_engine.explain(
+                    user_id,
+                    subject_kind=skind,
+                    subject_id=sid,
+                    query_intent=normalized_intent,
+                    question=q,
+                    correlation_id=correlation_id,
+                    persist=True,
+                )
+            except Exception as exc:  # defensive
+                log.warning("ExplanationEngine.explain failed: %s", exc)
+
+        if exp_model:
+            # Check if subject was not found or insufficient evidence
+            if exp_model.get("user_id") == "-" and "INSUFFICIENT EVIDENCE" in exp_model.get("summary", ""):
+                return _j({
+                    "status": "INSUFFICIENT_EVIDENCE",
+                    "detail": exp_model.get("summary"),
+                    "explanation_type": exp_model.get("explanation_type"),
+                    "query_intent": normalized_intent,
+                })
+
+            state_now = exp_model.get("state_now")
+            if not state_now and exp_model.get("subject", {}).get("current_state"):
+                state_now = exp_model["subject"]["current_state"]
+
+            state_then = exp_model.get("state_then")
+            if not state_then and exp_model.get("subject", {}).get("historical_state"):
+                state_then = exp_model["subject"]["historical_state"]
+
+            change_reason = (
+                exp_model.get("change_reason")
+                or (exp_model.get("correction", {}).get("reason") if exp_model.get("correction") else None)
+            )
+
+            result_payload = {
+                "status": "OK",
+                "explanation_id": exp_model.get("id"),
+                "explanation_type": exp_model.get("explanation_type"),
+                "query_intent": exp_model.get("query_intent") or normalized_intent,
+                "subject": exp_model.get("subject"),
+                "summary": exp_model.get("summary"),
+                "decisive_factors": exp_model.get("decisive_factors"),
+                "supporting_evidence": exp_model.get("supporting_evidence"),
+                "counter_evidence": exp_model.get("counter_evidence"),
+                "alternatives": exp_model.get("alternatives"),
+                "causality": exp_model.get("causality"),
+                "correction": exp_model.get("correction"),
+                "timeline": exp_model.get("timeline"),
+                "state_now": state_now,
+                "state_then": state_then,
+                "change_reason": change_reason,
+                "epistemic_status": "OBSERVED",
+                "confidence": exp_model.get("confidence"),
+                "note": "Explain from this recorded evidence only. Never invent internal reasoning.",
+            }
+            return _j(result_payload)
+
+        return _j({
+            "status": "INSUFFICIENT_EVIDENCE",
+            "detail": "No explanation engine available.",
+        })
+
+    def explain(
+        question_kind: str = "why",
+        subject_kind: str | None = None,
+        subject_id: str | None = None,
+        question: str | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """
+        Legacy V8.3.1 explanation tool adapter.
+        Delegates to ExplanationEngine to generate the canonical explanation graph,
+        then adapts it into the V8.3.1 response contract (with `subjects` and `mission_history`).
+        """
+        intent = kwargs.get("intent") or question_kind or "why"
+        normalized_intent = str(intent).lower().replace(" ", "_").strip()
+        if normalized_intent not in EXPLANATION_INTENTS:
+            normalized_intent = "why"
+
+        focused = cognition.focus.current(user_id, session_id=session)
+        skind = (subject_kind or "").strip().lower() or None
+        sid = (subject_id or "").strip() or None
+        q = (question or "").strip() or None
+
+        emit("EXPLAIN", {
+            "kind": normalized_intent,
+            "intent": normalized_intent,
+            "subject_kind": skind,
+            "subject_id": sid,
+            "focused": len(focused),
+        })
+
+        # 1. Legacy "what_changed" handling
+        if normalized_intent == "what_changed":
+            changes = cognition.world_v2.changes(user_id, limit=10) if hasattr(cognition, "world_v2") else []
             mission_history: list[dict[str, Any]] = []
             for item in focused:
-                if item["subject_kind"] == "mission":
-                    mission_history = cognition.missions.history(
-                        user_id, item["subject_id"], limit=10)
+                if item.get("subject_kind") == "mission" and hasattr(cognition, "missions"):
+                    raw_hist = cognition.missions.history(user_id, item["subject_id"], limit=10)
+                    for h in raw_hist:
+                        mission_history.append({
+                            "change": h.get("change", ""),
+                            "from": h.get("previous_state", ""),
+                            "to": h.get("new_state", ""),
+                            "reason": h.get("reason", ""),
+                            "when": h.get("created_at", ""),
+                        })
             if not changes and not mission_history:
-                return _j({"status": "NO_CHANGES_RECORDED",
-                           "detail": "Nothing has changed on record."})
-            return _j({"status": "OK",
-                       "world_changes": [{
-                           "change": c["change"], "from": c["previous_state"],
-                           "to": c["new_state"], "when": c["created_at"]}
-                           for c in changes[:6]] or None,
-                       "mission_history": [{
-                           "change": h["change"], "from": h["previous_state"],
-                           "to": h["new_state"], "reason": h["reason"],
-                           "when": h["created_at"]}
-                           for h in mission_history[:6]] or None,
-                       "epistemic_status": "OBSERVED"})
+                return _j({
+                    "status": "NO_CHANGES_RECORDED",
+                    "detail": "Nothing has changed on record.",
+                })
+            return _j({
+                "status": "OK",
+                "world_changes": [{
+                    "change": c["change"],
+                    "from": c["previous_state"],
+                    "to": c["new_state"],
+                    "when": c["created_at"],
+                } for c in changes[:6]] if changes else None,
+                "mission_history": mission_history or None,
+                "epistemic_status": "OBSERVED",
+            })
 
-        if not focused:
-            return _j({"status": "NO_SUBJECT_IN_FOCUS",
-                       "detail": ("Nothing specific is in focus. Ask what the "
-                                  "user means, or explain from the evidence "
-                                  "already in context.")})
+        # 2. Focus / Target resolution for general / why queries
+        if not skind or not sid:
+            if not focused:
+                return _j({
+                    "status": "NO_SUBJECT_IN_FOCUS",
+                    "detail": ("Nothing specific is in focus. Ask what the "
+                               "user means, or explain from the evidence "
+                               "already in context."),
+                })
+            distinct_subjects = {(f["subject_kind"], f["subject_id"]) for f in focused}
+            if len(distinct_subjects) == 1:
+                skind = skind or focused[0]["subject_kind"]
+                sid = sid or focused[0]["subject_id"]
+            elif not skind and not sid and normalized_intent not in ("what_changed", "why_now"):
+                return _j({
+                    "status": "AMBIGUOUS_REFERENCE",
+                    "detail": "Multiple subjects are in focus. Specify which one to explain.",
+                    "focused_subjects": [
+                        {"kind": f["subject_kind"], "id": f["subject_id"], "label": f.get("label")}
+                        for f in focused
+                    ],
+                })
 
+        # 3. Canonical Explanation Generation via ExplanationEngine
+        exp_model = None
+        if hasattr(cognition, "explanation_engine"):
+            try:
+                exp_model = cognition.explanation_engine.explain(
+                    user_id,
+                    subject_kind=skind,
+                    subject_id=sid,
+                    query_intent=normalized_intent,
+                    question=q,
+                    correlation_id=correlation_id,
+                    persist=True,
+                )
+            except Exception as exc:
+                log.warning("ExplanationEngine.explain failed: %s", exc)
+
+        if exp_model and exp_model.get("user_id") == "-" and "INSUFFICIENT EVIDENCE" in exp_model.get("summary", ""):
+            return _j({
+                "status": "INSUFFICIENT_EVIDENCE",
+                "detail": exp_model.get("summary"),
+                "explanation_type": exp_model.get("explanation_type"),
+                "query_intent": normalized_intent,
+            })
+
+        # 4. Adapt canonical result into legacy envelope
         evidence: dict[str, Any] = {"status": "OK", "subjects": []}
-        for item in focused:
-            entry: dict[str, Any] = {"kind": item["subject_kind"],
-                                     "id": item["subject_id"],
-                                     "label": item.get("label")}
-            if item["subject_kind"] == "mission":
-                mission = cognition.missions.get(user_id, item["subject_id"])
+        subjects_to_inspect = focused if focused else ([{"subject_kind": skind, "subject_id": sid, "label": sid}] if skind and sid else [])
+
+        for item in subjects_to_inspect:
+            ikind = item.get("subject_kind")
+            iid = item.get("subject_id")
+            ilabel = item.get("label") or iid
+            entry: dict[str, Any] = {"kind": ikind, "id": iid, "label": ilabel}
+
+            if ikind == "mission" and hasattr(cognition, "missions"):
+                mission = cognition.missions.get(user_id, iid)
                 if mission:
                     entry["mission"] = _mission_view(mission, full=True)
+                    raw_h = cognition.missions.history(user_id, mission["id"], limit=5)
                     entry["history"] = [{
-                        "change": h["change"], "reason": h["reason"],
-                        "when": h["created_at"]}
-                        for h in cognition.missions.history(
-                            user_id, mission["id"], limit=5)]
-            elif item["subject_kind"] in ("skill", "principle"):
-                learned = cognition.knowledge.explain(user_id, item["subject_id"])
+                        "change": h.get("change", ""),
+                        "from": h.get("previous_state", ""),
+                        "to": h.get("new_state", ""),
+                        "reason": h.get("reason", ""),
+                        "when": h.get("created_at", ""),
+                    } for h in raw_h]
+            elif ikind in ("skill", "principle") and hasattr(cognition, "knowledge"):
+                learned = cognition.knowledge.explain(user_id, iid)
                 entry["learned"] = {
-                    "summary": learned["summary"],
-                    "supporting_evidence": learned["supporting_evidence"],
-                    "counterexamples": learned["counterexamples"],
-                    "validation_history": learned["validation_history"],
-                    "lifecycle_history": learned["lifecycle_history"],
-                    "note": learned["note"],
+                    "summary": learned.get("summary"),
+                    "supporting_evidence": learned.get("supporting_evidence"),
+                    "counterexamples": learned.get("counterexamples"),
+                    "validation_history": learned.get("validation_history"),
+                    "lifecycle_history": learned.get("lifecycle_history"),
+                    "note": learned.get("note"),
                 }
-            elif item["subject_kind"] == "experience":
-                entry["experience"] = cognition.experiences.provenance(
-                    user_id, item["subject_id"])
-            obs = cognition.observations.evidence_for(
-                user_id, item["subject_kind"], item["subject_id"])
-            entry["evidence_count"] = obs["total"]
-            entry["observations"] = [o["content"] for o in
-                                     obs["observations"][:4]] or None
-            entry["verdict"] = obs["verdict"]
+            elif ikind == "experience" and hasattr(cognition, "experiences"):
+                entry["experience"] = cognition.experiences.provenance(user_id, iid)
+
+            if hasattr(cognition, "observations") and ikind and iid:
+                obs = cognition.observations.evidence_for(user_id, ikind, iid)
+                entry["evidence_count"] = obs.get("total", 0)
+                entry["observations"] = [o.get("content") for o in obs.get("observations", [])[:4]] or None
+                entry["verdict"] = obs.get("verdict")
+
             evidence["subjects"].append(entry)
-        evidence["note"] = ("Explain from this recorded evidence only. If the "
-                            "evidence is thin, say so.")
+
+        evidence["note"] = "Explain from this recorded evidence only. If the evidence is thin, say so."
+        evidence["epistemic_status"] = "OBSERVED"
+
+        # Merge canonical V8.4.2 properties onto legacy envelope
+        if exp_model:
+            evidence["explanation_id"] = exp_model.get("id")
+            evidence["explanation_type"] = exp_model.get("explanation_type")
+            evidence["query_intent"] = exp_model.get("query_intent") or normalized_intent
+            evidence["subject"] = exp_model.get("subject")
+            evidence["summary"] = exp_model.get("summary")
+            evidence["decisive_factors"] = exp_model.get("decisive_factors")
+            evidence["supporting_evidence"] = exp_model.get("supporting_evidence")
+            evidence["counter_evidence"] = exp_model.get("counter_evidence")
+            evidence["alternatives"] = exp_model.get("alternatives")
+            evidence["causality"] = exp_model.get("causality")
+            evidence["correction"] = exp_model.get("correction")
+            evidence["timeline"] = exp_model.get("timeline")
+            evidence["state_now"] = exp_model.get("state_now")
+            evidence["state_then"] = exp_model.get("state_then")
+            evidence["change_reason"] = exp_model.get("change_reason")
+
         return _j(evidence)
 
     # ------------------------------------------------------------- schemas
@@ -894,8 +1145,60 @@ def build_cognitive_tools(
         question: str = Field(description="The what-if question.")
 
     class ExplainArgs(_NullTolerant):
-        question_kind: str = Field(default="why",
-                                   description="why | why_now | what_changed")
+        intent: ExplanationIntent = Field(
+            default="why",
+            description=(
+                "The specific explanation query intent: "
+                "'why' = why an action/decision/memory/skill was used or chosen; "
+                "'why_not' = why an alternative or retired skill was NOT used; "
+                "'why_now' = what temporal event or trigger initiated this turn; "
+                "'what_changed' = what state transitions, retirements, or modifications occurred; "
+                "'what_evidence' = what canonical supporting observations exist; "
+                "'what_alternatives' = what candidates were evaluated and why each was rejected; "
+                "'what_caused_change' = what upstream causal factors drove this state."
+            ),
+        )
+        subject_id: str = Field(
+            default="",
+            description=(
+                "Stable subject id. Omit (or leave empty/null) when an object "
+                "(Skill, Principle, Memory, Mission, Decision) is already focused: "
+                "the tool automatically resolves the focused object. Never invent an id."
+            ),
+        )
+        subject_kind: str = Field(
+            default="",
+            description=(
+                "Optional subject kind: skill, principle, memory, mission, decision, "
+                "routing, intervention, attention, prediction, world, intent, autonomy, "
+                "policy. Omit when an object is in focus."
+            ),
+        )
+        question: str = Field(
+            default="",
+            description="Optional natural language question for conversational context.",
+        )
+
+        @model_validator(mode="before")
+        @classmethod
+        def _normalize_intent_and_nulls(cls, data: Any) -> Any:
+            if not isinstance(data, dict):
+                return data
+            cleaned = {}
+            for key, value in data.items():
+                if value is None and key in cls.model_fields:
+                    default = cls.model_fields[key].default
+                    if default is not PydanticUndefined:
+                        continue
+                cleaned[key] = value
+            # Support question_kind as alias for intent
+            if "question_kind" in cleaned and ("intent" not in cleaned or not cleaned.get("intent")):
+                cleaned["intent"] = cleaned.pop("question_kind")
+            if "intent" in cleaned and isinstance(cleaned["intent"], str):
+                normalized = cleaned["intent"].lower().replace(" ", "_").strip()
+                if normalized in EXPLANATION_INTENTS:
+                    cleaned["intent"] = normalized
+            return cleaned
 
     class LearnedListArgs(_NullTolerant):
         kind: str = Field(default="all", description="all | skill | principle")
@@ -1042,12 +1345,32 @@ def build_cognitive_tools(
             args_schema=NoArgs),
         StructuredTool.from_function(
             func=inspect_learned, name="inspect_learned",
-            description="Explain a Skill or Principle from recorded evidence, "
-                        "provenance, validation, confidence, reputation and "
-                        "lifecycle. Use for 'how did you learn this?', 'why do "
-                        "you use that skill?', and 'is that still valid?'. Never "
-                        "invent reasoning beyond the returned evidence.",
+            description=(
+                "Inspect the current recorded state, statement, procedure, scope, "
+                "confidence, reputation and validation history of a focused Skill or Principle. "
+                "Use to see what the object currently is and its static evidence. "
+                "DO NOT use for 'why did you use that skill', 'why not', 'why now', or 'what changed' — "
+                "use explain_cognition for all WHY / WHY NOT / WHY NOW / WHAT CHANGED questions."
+            ),
             args_schema=LearnedIdArgs),
+        StructuredTool.from_function(
+            func=explain_cognition, name="explain_cognition",
+            description=(
+                "Explain WHY, WHY_NOT, WHY_NOW, WHAT_CHANGED, WHAT_EVIDENCE, WHAT_ALTERNATIVES, or WHAT_CAUSED_CHANGE "
+                "for any cognitive decision, memory recall, skill/principle usage or retirement, arbitration, routing, or intervention "
+                "using recorded decision, event, arbitration, and causal records. "
+                "When a Skill, Memory, Mission, or Decision is focused, omit subject_id and subject_kind to explain that focused subject. "
+                "Unlike inspect_learned (which only reads static state), explain_cognition explains the causal reasons, decisive factors, "
+                "counterfactual alternatives, and historical transitions."
+            ),
+            args_schema=ExplainArgs),
+        StructuredTool.from_function(
+            func=explain, name="explain",
+            description=(
+                "Explain WHY, WHY_NOT, WHY_NOW, WHAT_CHANGED, WHAT_EVIDENCE, WHAT_ALTERNATIVES, or WHAT_CAUSED_CHANGE "
+                "using recorded decision, event, arbitration, and causal records."
+            ),
+            args_schema=ExplainArgs),
         StructuredTool.from_function(
             func=correct_learned, name="correct_learned",
             description=(
@@ -1087,9 +1410,4 @@ def build_cognitive_tools(
             description="Explore a what-if without changing anything. Use for "
                         "'what if I delay this'. Results are SIMULATED.",
             args_schema=SimulateArgs),
-        StructuredTool.from_function(
-            func=explain, name="explain",
-            description="Recorded evidence behind the current topic. Use for "
-                        "'why?', 'why now?' and 'what changed?'.",
-            args_schema=ExplainArgs),
     ]

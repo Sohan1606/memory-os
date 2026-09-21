@@ -136,6 +136,9 @@ PRINCIPLE_V841 = (
     "principle.rescoped",
 )
 LEARNING_V841 = ("learning.pattern_detected",)
+EXPLANATION_V842 = (
+    "explanation.generated", "explanation.queried", "explanation.persisted",
+)
 
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
@@ -148,6 +151,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + OBSERVATION + OUTCOME_V83 + SIMULATION + BACKGROUND + MAINTENANCE_V83
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
+    + EXPLANATION_V842
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -363,6 +367,9 @@ LABELS: dict[str, str] = {
     "principle.retired": "Retired a principle",
     "principle.rescoped": "Changed where a principle applies",
     "learning.pattern_detected": "Found an evidence-backed learning pattern",
+    "explanation.generated": "Explained a cognitive result",
+    "explanation.queried": "Audited reasoning evidence",
+    "explanation.persisted": "Saved auditable explanation",
 }
 
 

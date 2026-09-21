@@ -36,6 +36,16 @@ logs/
 
 # QA artefacts
 tests/*.png
+docs/screenshots/
+*.png
+*.zip
+*.sha256
+
+# User caches
+.cache/
+.config/
+.npm/
+.sudo_as_admin_successful
 
 # OS
 .DS_Store

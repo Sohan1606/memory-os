@@ -34,7 +34,7 @@ from .schemas.api import (DecisionOutcomeRequest, ExperienceCreateRequest,
                           ExperienceLifecycleRequest, KnowledgeCorrectionRequest,
                           KnowledgeOutcomeRequest, KnowledgeRetrievalRequest,
                           KnowledgeUseRequest, PrincipleCandidateRequest,
-                          SkillCandidateRequest)
+                          SkillCandidateRequest, ExplanationQueryRequest)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ app = FastAPI(
     title="MEMORY//OS API",
     description="Local-first AI agent with long-term memory. LangGraph + LangChain "
                 "+ ChromaDB + local embeddings + SQLite.",
-    version="8.4.1",
+    version="8.4.2",
 )
 
 origins = ["*"] if settings.cors_origins.strip() == "*" else [
@@ -1595,3 +1595,86 @@ def prediction_unresolved(prediction_id: str, user_id: str | None = None,
     if result is None:
         raise HTTPException(404, "No such open prediction.")
     return {"prediction": result}
+
+
+# ---------------------------------------------------- v8.4.2 explanation engine
+@app.get("/api/explanations")
+def list_explanations(user_id: str | None = None,
+                      subject_kind: str | None = None,
+                      subject_id: str | None = None,
+                      limit: int = 50,
+                      runtime: Runtime = Depends(rt)):
+    """List persisted explanation snapshots for user."""
+    user = uid(runtime, user_id)
+    return {
+        "explanations": runtime.cognition.explanation_engine.list_snapshots(
+            user, subject_kind=subject_kind, subject_id=subject_id, limit=limit)
+    }
+
+
+@app.get("/api/explanations/{explanation_id}")
+def get_explanation(explanation_id: str, user_id: str | None = None,
+                    runtime: Runtime = Depends(rt)):
+    """Retrieve an auditable explanation snapshot by id."""
+    user = uid(runtime, user_id)
+    exp = runtime.cognition.explanation_engine.get_snapshot(user, explanation_id)
+    if not exp:
+        raise HTTPException(404, "Explanation snapshot not found.")
+    return exp
+
+
+@app.get("/api/explanations/subject/{subject_kind}/{subject_id}")
+def explain_subject(subject_kind: str, subject_id: str,
+                    intent: str = "why",
+                    question: str | None = None,
+                    depth: int = 2,
+                    persist: bool = True,
+                    user_id: str | None = None,
+                    runtime: Runtime = Depends(rt)):
+    """Generate or retrieve a full evidence-backed explanation graph for a subject."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.explanation_engine.explain(
+        user, subject_kind=subject_kind, subject_id=subject_id,
+        query_intent=intent, question=question, depth=depth, persist=persist)
+
+
+@app.get("/api/explanations/decision/{decision_id}")
+def explain_decision_endpoint(decision_id: str,
+                              intent: str = "why",
+                              persist: bool = True,
+                              user_id: str | None = None,
+                              runtime: Runtime = Depends(rt)):
+    """Explain why a decision was reached, its alternatives, influences, and outcomes."""
+    user = uid(runtime, user_id)
+    return runtime.cognition.explanation_engine.explain(
+        user, subject_kind="decision", subject_id=decision_id,
+        explanation_type="DECISION_INFLUENCE", query_intent=intent, persist=persist)
+
+
+@app.get("/api/explanations/event/{event_id}")
+def explain_event_endpoint(event_id: int,
+                           intent: str = "why",
+                           user_id: str | None = None,
+                           runtime: Runtime = Depends(rt)):
+    """Explain the context, triggers, and correlation behind a specific canonical event."""
+    user = uid(runtime, user_id)
+    row = runtime.db.query_one("SELECT * FROM cognitive_events WHERE id=? AND user_id=?", (event_id, user))
+    if not row:
+        raise HTTPException(404, "Cognitive event not found.")
+    evt = dict(row)
+    return runtime.cognition.explanation_engine.explain(
+        user, subject_kind=evt.get("subject_kind") or "event",
+        subject_id=evt.get("subject_id") or str(event_id),
+        query_intent=intent, persist=True)
+
+
+@app.post("/api/explanations/query")
+def query_explanation(req: ExplanationQueryRequest, runtime: Runtime = Depends(rt)):
+    """Run an ad-hoc explanation query with specific intent, depth, and subject."""
+    user = uid(runtime, req.user_id)
+    return runtime.cognition.explanation_engine.explain(
+        user, subject_kind=req.subject_kind, subject_id=req.subject_id,
+        explanation_type=req.explanation_type, query_intent=req.query_intent,
+        question=req.question, depth=req.depth, persist=req.persist,
+        correlation_id=req.correlation_id)
+

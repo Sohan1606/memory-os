@@ -41,6 +41,24 @@ MEMORY TOOLS
 - Call update_memory when new information contradicts a stored memory.
 - Do not store transient questions or small talk.
 
+EXPLANATION REQUIRED (explain_cognition):
+For questions asking:
+- why
+- why not
+- why now
+- what changed
+- what evidence supports this
+- what alternatives were considered
+- what caused this change
+- why a skill/principle/memory/decision was or was not used
+- why the system is asking or intervening
+the agent MUST call explain_cognition before answering when recorded cognitive evidence is relevant.
+The model MUST NOT answer such questions from conversational intuition when the explanation engine can inspect canonical records.
+Distinction:
+- inspect_learned: inspects the object's current recorded static state/properties.
+- explain_cognition: explains WHY / WHY_NOT / WHY_NOW / WHAT_CHANGED / WHAT_EVIDENCE / WHAT_ALTERNATIVES / WHAT_CAUSED_CHANGE using decision, event, arbitration, and causal records.
+When a subject (Skill, Principle, Memory, Mission, Decision) is in focus, call explain_cognition with intent (e.g. {"intent": "why", "subject_id": "", "subject_kind": ""}) and omit subject_id / subject_kind so conversational focus resolves the subject.
+
 COGNITIVE TOOLS — these hold DIFFERENT kinds of object, not memories:
 - MISSION: a tracked objective spanning conversations, with state, steps and
   blockers. Use list_missions / get_mission to read.
@@ -58,16 +76,17 @@ COGNITIVE TOOLS — these hold DIFFERENT kinds of object, not memories:
 - CURRENT FOCUS: get_current_focus for "what am I working on", "what's
   pending", "where did we leave off".
 - LEARNED KNOWLEDGE: Experiences are observed episodes; Skills are actionable
-  learned procedures; Principles are higher-order guidance. Use list_learned,
-  list_experiences and inspect_learned to answer what was learned, why it is
-  used, what evidence supports it, and whether it is still valid. Confidence
-  (evidence support) and reputation (performance after use) are different.
+  learned procedures; Principles are higher-order guidance. Use list_learned
+  and list_experiences to inspect what knowledge exists. Use inspect_learned
+  to inspect a focused item's current static state, procedure, and validation history.
+  For WHY a skill was used, why it was retired, or why not, call explain_cognition.
+  Confidence (evidence support) and reputation (performance after use) are different.
   Use correct_learned for explicit corrections. For "forget that skill" or
   "stop using that principle", choose action="retire" and omit item_id when the
   object is focused. Use weaken for reduced reliance, outdated for changed
   circumstances, contradict when the user says it is false/invalid, and rescope
   when it remains valid only in a narrower context. Never guess an id.
-- PREDICTIONS, ATTENTION, HISTORY, SIMULATION, EXPLAIN as described per tool.
+- PREDICTIONS, ATTENTION, HISTORY, SIMULATION as described per tool.
 
 ACTING ON THE FOCUSED OBJECT:
 A "FOCUSED MISSION" line in the context gives you the mission's title, id and
@@ -507,6 +526,8 @@ class MemoryAgent:
         asks_recall = bool(re.search(
             r"\b(what|which|who|how|do you) .*(remember|know|recall|prefer|my|about me)\b|"
             r"\bwhat do you remember\b|\bmy (projects?|preferences?|goals?|style)\b", low))
+        asks_why = bool(re.search(
+            r"\b(why|why not|why now|what changed|what evidence|what alternatives|what caused)\b", low))
         states_fact = policy.evaluate(text).is_durable
 
         # v8.3.1 §16: the fallback understands the cognitive object APIs too,
@@ -616,6 +637,29 @@ class MemoryAgent:
                 reply = ("DETERMINISTIC FALLBACK — read from the real mission "
                          "and world records, composed without a language "
                          f"model:\n{body}")
+        elif asks_why and ("explain_cognition" in by_name or "explain" in by_name):
+            tool_name = "explain_cognition" if "explain_cognition" in by_name else "explain"
+            intent = "why"
+            if "why not" in low:
+                intent = "why_not"
+            elif "why now" in low:
+                intent = "why_now"
+            elif "what changed" in low:
+                intent = "what_changed"
+            elif "what evidence" in low:
+                intent = "what_evidence"
+            elif "what alternative" in low:
+                intent = "what_alternatives"
+            elif "what caused" in low:
+                intent = "what_caused_change"
+            raw = by_name[tool_name].invoke({"intent": intent})
+            activity.append({"type": "TOOL_DECISION", "tool": tool_name})
+            data = json.loads(raw)
+            if data.get("status") == "OK":
+                summary = data.get("summary") or "Explanation on record."
+                reply = f"DETERMINISTIC FALLBACK — read from canonical explanation records:\n{summary}"
+            else:
+                reply = f"DETERMINISTIC FALLBACK: {data.get('detail', 'No explanation available on record.')}"
         elif asks_recall:
             raw = by_name["search_memory"].invoke({"query": text, "top_k": 5})
             activity.append({"type": "TOOL_DECISION", "tool": "search_memory"})

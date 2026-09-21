@@ -660,3 +660,89 @@ export interface KnowledgeExplanation {
   summary: string;
   note: string;
 }
+
+// ----------------------------------------------------------- v8.4.2 types
+export interface DecisiveFactor {
+  name: string;
+  value: unknown;
+  impact: "positive" | "negative" | "neutral";
+  description: string;
+}
+
+export interface AlternativeCandidate {
+  id: string;
+  label: string;
+  kind: string;
+  score?: number | null;
+  lifecycle?: string | null;
+  rejection_reason: string;
+  factors: Record<string, unknown>;
+}
+
+export interface ExplanationEvidence {
+  id: string;
+  kind: string;
+  content: string;
+  confidence: number;
+  source: string;
+  created_at: string;
+  relation: string;
+}
+
+export interface CorrectionStateDiff {
+  is_corrected: boolean;
+  correction_type?: string | null;
+  previous_lifecycle?: string | null;
+  current_lifecycle?: string | null;
+  reason?: string | null;
+  created_at?: string;
+  historical_state?: Record<string, unknown> | null;
+  current_state?: Record<string, unknown> | null;
+}
+
+export interface ExplanationGraph {
+  id: string;
+  user_id: string;
+  explanation_type: string;
+  query_intent: string;
+  subject: {
+    kind: string;
+    id: string;
+    label: string;
+    status?: string;
+    lifecycle?: string;
+    current_state?: Record<string, unknown>;
+    historical_state?: Record<string, unknown> | null;
+  };
+  summary: string;
+  decisive_factors: DecisiveFactor[];
+  supporting_evidence: ExplanationEvidence[];
+  counter_evidence: ExplanationEvidence[];
+  alternatives: AlternativeCandidate[];
+  causality: {
+    upstream: { cause_kind: string; cause_id: string; relation: string; weight?: number }[];
+    downstream: { effect_kind: string; effect_id: string; relation: string; weight?: number }[];
+  };
+  timeline: { id: number; type: string; summary: string; created_at: string; correlation_id?: string | null }[];
+  correction?: CorrectionStateDiff | null;
+  confidence?: number | null;
+  provenance: {
+    source: string;
+    schema_version: string;
+    generated_at: string;
+    correlation_id?: string | null;
+    evidence_count: number;
+  };
+  created_at: string;
+}
+
+export interface ExplanationSnapshotMeta {
+  id: string;
+  user_id: string;
+  subject_kind?: string | null;
+  subject_id?: string | null;
+  explanation_type: string;
+  query_intent: string;
+  summary: string;
+  created_at: string;
+}
