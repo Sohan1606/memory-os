@@ -81,6 +81,7 @@ class Runtime:
         # still honour its user-visible clean-slate contract. Delete dependants
         # first; observation/world state retain their established V8.3 behavior.
         delete_statements = (
+            "DELETE FROM explanation_snapshots WHERE user_id = ?",
             "DELETE FROM knowledge_usages WHERE user_id = ?",
             "DELETE FROM abstraction_reputation WHERE user_id = ?",
             "DELETE FROM knowledge_validations WHERE user_id = ?",
@@ -144,7 +145,7 @@ class Runtime:
             # `version` is the established V8.2 API-contract marker retained for
             # backwards compatibility; `release` identifies the running slice.
             "version": "8.2",
-            "release": "8.4.1",
+            "release": "8.4.2",
         }
 
     def close(self) -> None:

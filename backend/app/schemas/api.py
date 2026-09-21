@@ -390,3 +390,16 @@ class DecisionOutcomeRequest(BaseModel):
     lesson: str | None = Field(default=None, max_length=1000)
     regret_evidence: list[str] = Field(default_factory=list)
     user_id: str | None = None
+
+
+class ExplanationQueryRequest(BaseModel):
+    subject_kind: str | None = Field(default=None, max_length=50)
+    subject_id: str | None = Field(default=None, max_length=120)
+    explanation_type: str | None = Field(default=None, max_length=60)
+    query_intent: str = Field(default="why", max_length=50)
+    question: str | None = Field(default=None, max_length=1000)
+    depth: int = Field(default=2, ge=1, le=5)
+    persist: bool = Field(default=True)
+    correlation_id: str | None = Field(default=None, max_length=100)
+    user_id: str | None = None
+

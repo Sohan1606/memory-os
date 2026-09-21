@@ -738,6 +738,30 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_transitions
     ON knowledge_transitions(user_id, item_id, created_at);
 """
 
+# ===================== V8.4.2 ADVANCED EXPLANATION SCHEMA =====================
+SCHEMA_V842 = """
+CREATE TABLE IF NOT EXISTS explanation_snapshots (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    subject_kind TEXT,
+    subject_id TEXT,
+    explanation_type TEXT NOT NULL,
+    query_intent TEXT NOT NULL DEFAULT 'why',
+    summary TEXT NOT NULL,
+    graph_data TEXT NOT NULL,
+    evidence_ids TEXT,
+    event_ids TEXT,
+    decision_ids TEXT,
+    causality_ids TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_explanations_user
+    ON explanation_snapshots(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_explanations_subject
+    ON explanation_snapshots(user_id, subject_kind, subject_id);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
@@ -785,6 +809,7 @@ class Database:
             conn.executescript(SCHEMA)
             conn.executescript(SCHEMA_V83)
             conn.executescript(SCHEMA_V841)
+            conn.executescript(SCHEMA_V842)
         self._migrate()
 
     def _migrate(self) -> None:

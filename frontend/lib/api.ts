@@ -15,7 +15,7 @@ import type {
   CognitivePolicy, ContinuityItem, ControlResult, ExecutionStep, FocusEntry,
   IntentTransition, MemoryImpact, MemoryInfluence, NeedHypothesis,
   RouteDecision, Experience, KnowledgeExplanation, KnowledgeStats,
-  KnowledgeUsage, LearnedKnowledge,
+  KnowledgeUsage, LearnedKnowledge, ExplanationGraph, ExplanationSnapshotMeta,
 } from "./types";
 
 export class ApiError extends Error {
@@ -402,5 +402,47 @@ export const api = {
     request<ControlResult>("/api/control", {
       method: "POST",
       body: JSON.stringify({ message, session_id: sessionId }),
+    }),
+
+  // --------------------------------------------------------- v8.4.2
+  /** List persisted explanation snapshots. */
+  listExplanations: (subjectKind?: string, subjectId?: string, limit = 50) => {
+    const params = new URLSearchParams();
+    if (subjectKind) params.append("subject_kind", subjectKind);
+    if (subjectId) params.append("subject_id", subjectId);
+    params.append("limit", limit.toString());
+    return request<{ explanations: ExplanationSnapshotMeta[] }>(`/api/explanations?${params.toString()}`);
+  },
+
+  /** Get an auditable explanation snapshot by id. */
+  getExplanation: (id: string) => request<ExplanationGraph>(`/api/explanations/${encodeURIComponent(id)}`),
+
+  /** Generate or retrieve full evidence-backed explanation graph for a subject. */
+  explainSubject: (kind: string, id: string, intent = "why", question?: string) => {
+    const params = new URLSearchParams();
+    params.append("intent", intent);
+    if (question) params.append("question", question);
+    return request<ExplanationGraph>(
+      `/api/explanations/subject/${encodeURIComponent(kind)}/${encodeURIComponent(id)}?${params.toString()}`
+    );
+  },
+
+  /** Explain a decision with its alternatives, influences, and outcomes. */
+  explainDecision: (id: string, intent = "why") =>
+    request<ExplanationGraph>(`/api/explanations/decision/${encodeURIComponent(id)}?intent=${encodeURIComponent(intent)}`),
+
+  /** Run an ad-hoc explanation query. */
+  queryExplanation: (payload: {
+    subject_kind?: string;
+    subject_id?: string;
+    explanation_type?: string;
+    query_intent?: string;
+    question?: string;
+    depth?: number;
+    persist?: boolean;
+  }) =>
+    request<ExplanationGraph>("/api/explanations/query", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
 };

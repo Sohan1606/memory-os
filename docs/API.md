@@ -499,3 +499,30 @@ candidates but reports `promoted: 0`; promotion is never automatic.
 
 `GET /api/learning` adds `experience_count` and aggregate `knowledge` lifecycle
 statistics.
+
+---
+
+## Explanation Engine (V8.4.2)
+
+Auditable reasoning graphs assembled from real persisted state and canonical events.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/explanations` | List persisted explanation snapshots (optional `subject_kind`, `subject_id`, `limit`) |
+| GET | `/api/explanations/{id}` | Retrieve a persisted explanation snapshot by id |
+| GET | `/api/explanations/subject/{subject_kind}/{subject_id}` | Generate or retrieve an explanation graph for a subject (`intent`: `why`, `why_not`, `why_now`, `what_changed`, `what_evidence`, `what_alternatives`, `what_caused_change`) |
+| GET | `/api/explanations/decision/{decision_id}` | Explain decision influence, alternatives, and outcomes |
+| GET | `/api/explanations/event/{event_id}` | Explain triggers and correlation behind a canonical event |
+| POST | `/api/explanations/query` | Ad-hoc explanation query with specific intent, depth, and subject |
+
+```jsonc
+POST /api/explanations/query
+{
+  "subject_kind": "skill",
+  "subject_id": "sk_12345",
+  "query_intent": "what_changed",
+  "depth": 2,
+  "persist": true,
+  "user_id": "demo-user"
+}
+```

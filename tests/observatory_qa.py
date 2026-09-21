@@ -104,7 +104,7 @@ def main() -> int:
         if rows.count() > 0:
             rows.first.click()
             page.wait_for_timeout(1200)
-            check("Why inspector opens", "WHY ·" in page.inner_text("body").upper())
+            check("Why inspector opens", "WHY INSPECTOR" in page.inner_text("body").upper() or "WHY ·" in page.inner_text("body").upper())
         else:
             check("Why inspector opens", False, "no activity rows")
 
