@@ -409,3 +409,26 @@ error overlay.
 
 Exact results for the release candidate are recorded in
 [V8.4.1-VERIFICATION.md](V8.4.1-VERIFICATION.md).
+
+---
+
+## V8.4.3 verification suites
+
+| Suite | Purpose |
+|---|---|
+| `test_v843_net_security.py` (36 tests) | Adversarial SSRF suite: loopback/private-IPv4/private-IPv6/link-local+metadata/IPv4-mapped-IPv6/alt-IP-encodings (decimal/hex/octal/partial-dotted)/unsafe-schemes/userinfo-rejection/invalid-URL/port-policy/multicast/CGNAT/unspecified-address, all blocked; DNS-rebinding end-to-end via a real resolver; malformed-URL variants; `fetch()` never raises; resource limits (oversized response, redirect loop, unsupported content-type, timeout) via a local `ThreadingHTTPServer` fixture with a narrowly-scoped `allow_loopback` fixture that only widens policy enough to test fetch *mechanics*, never weakening real SSRF policy |
+| `test_v843_research_engine.py` (18 tests) | `ResearchEngine` integration against a local HTTP server: session lifecycle, failed-fetch persistence (404 → `UNREACHABLE`/`FETCH_FAILED`, session `FAILED`), empty-page → zero fabricated evidence, SSRF-blocked URL recorded in the ledger, evidence provenance fields, single-source confidence cap, same-domain corroboration correctly NOT counted as independent, conflicting claims both preserved + conflict record created, prompt-injection flagged but never executed, world-update propose/apply requiring `confirm=True` with capped confidence and rejected double-apply, cross-user isolation across every accessor, source-limit enforcement, honest `status()` limitation statement |
+| `test_v843_live_network.py` (5 tests) | **Real outbound network calls**, no mocking: a genuine HTTPS fetch to `example.com`, a full research session against a real live page, a real `httpbin.org` redirect-to-private-IP correctly blocked end to end, a real DNS failure against a nonexistent domain reported honestly, and a self-check that reports the whole suite as `NOT VERIFIED`/skipped (never silently passed) if outbound network is unavailable in the running environment |
+| `test_v843_migration.py` (2 tests) | Builds a real SQLite file using only the pre-V8.4.3 schema strings, populates representative V8/V8.1–V8.4.2 rows, then opens it via the real `Database.__init__` startup path and proves every pre-existing row survives untouched while all 7 new `research_*` tables are created; a second test proves re-opening is idempotent |
+| `test_v843_api_and_tools.py` (11 tests) | Full `/api/research/v2/*` HTTP lifecycle via `TestClient`, world-update apply requiring `confirm=True` (400 otherwise), cross-user 404, SSRF block surfaced through the API layer, legacy `/api/research` contract proven unchanged, all 6 new cognitive tools present with honest descriptions ("never invent a URL", "no search engine"), and `ExplanationEngine` producing `RESEARCH_EVIDENCE` explanations with a capped-confidence decisive factor plus an honest `INSUFFICIENT EVIDENCE` fallback for unknown subjects |
+
+All five V8.4.3 suites (72 tests) pass together with zero regression to the
+full pre-existing suite (`pytest -m "not slow"` → **786 passed, 10 skipped,
+12 deselected**). The live-network suite is deliberately isolated from the
+adversarial SSRF suite: the former performs genuine internet calls and
+self-reports honestly if network access is unavailable; the latter uses a
+local, loopback-only fixture server so the SSRF policy itself is never
+weakened just to make a test pass.
+
+Exact results for the release candidate are recorded in
+[V8.4.3-VERIFICATION.md](V8.4.3-VERIFICATION.md).

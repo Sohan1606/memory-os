@@ -374,13 +374,41 @@ Results carry `epistemic_status: "SIMULATED"`.
 |---|---|---|
 | `GET` | `/api/connectors` | Declared interfaces — all `NOT CONNECTED` |
 | `GET` | `/api/connectors/{name}/fetch` | `items: null` (no source ≠ empty source) |
-| `GET` | `/api/research` | `RESEARCH PROVIDER NOT CONFIGURED` |
-| `POST` | `/api/research` | Track a question; generates no findings |
+| `GET` | `/api/research` | `RESEARCH PROVIDER NOT CONFIGURED` (legacy V8.3 contract, unchanged) |
+| `POST` | `/api/research` | Track a question; generates no findings (legacy V8.3 contract, unchanged) |
 | `GET` | `/api/maintenance/review` | Read-only diagnosis, `changes: 0` |
 | `GET` | `/api/maintenance/remedies` | The non-destructive remedy set |
 | `GET` | `/api/predictions/due` | Elapsed evaluation windows |
 | `POST` | `/api/predictions/{id}/unresolved` | Close honestly as `UNRESOLVED` |
 
+## Connected Research (V8.4.3)
+
+A **distinct, additive namespace** from `/api/research` above. These routes
+drive the real `ResearchEngine`: explicit http(s) URLs are fetched through
+an SSRF-defended pipeline (see [`docs/V8.4.3.md`](V8.4.3.md)). All routes
+are scoped by `user_id` (query param on `GET`s, body field on `POST`s) and
+404 on another user's session/update id.
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/research/v2/status` | Engine availability, limits, honest "no search engine" statement |
+| `POST` | `/api/research/v2` | Create a session: `{"question": str, "user_id"?: str}` |
+| `GET` | `/api/research/v2` | List sessions (`?user_id=&limit=`) |
+| `GET` | `/api/research/v2/{session_id}` | Get one session |
+| `POST` | `/api/research/v2/{session_id}/fetch` | Fetch one explicit URL: `{"url": str, "user_id"?: str}` |
+| `POST` | `/api/research/v2/{session_id}/finish` | Mark COMPLETED/FAILED from real fetch outcomes |
+| `GET` | `/api/research/v2/{session_id}/sources` | List discovered sources |
+| `GET` | `/api/research/v2/{session_id}/fetches` | Full fetch ledger, including failures |
+| `GET` | `/api/research/v2/{session_id}/evidence` | List raw evidence excerpts |
+| `GET` | `/api/research/v2/{session_id}/claims` | List capped-confidence claims |
+| `GET` | `/api/research/v2/{session_id}/conflicts` | List detected conflicts (both sides preserved) |
+| `GET` | `/api/research/v2/{session_id}/world-updates` | List proposed/applied world updates |
+| `POST` | `/api/research/v2/{session_id}/world-updates/propose` | Propose: `{"claim_id": str, "kind": str, "label": str, "user_id"?: str}` |
+| `POST` | `/api/research/v2/world-updates/{update_id}/apply` | Apply: `{"confirm": true, "user_id"?: str}` — `confirm=false` → `400` |
+
+`fetch` returns `{"status": "COMPLETED"|"FETCH_FAILED"|"BLOCKED"|"TIMEOUT", "error_code"?, "detail": str, ...}`
+for every attempt — including blocked SSRF attempts and network failures,
+which are never converted into an empty/silent result.
 
 ---
 

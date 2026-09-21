@@ -30,6 +30,7 @@ from .knowledge import KnowledgeService
 from .maintenance import MaintenanceV2
 from .missions import MissionRegistry
 from .observation import ObservationLog
+from .research import ResearchEngine
 from .simulation import SimulationEngine
 from .timemachine import TimeMachine
 from .world_v2 import WorldStateV2
@@ -145,6 +146,12 @@ class Cognition:
         self.timemachine = TimeMachine(db, self.bus)
         self.connectors = ConnectorRegistry(db, self.bus)
         self.research = ResearchMode(db, self.bus, provider=None)
+        # ---------------------------------------------------- v8.4.3 addition
+        # Connected Research: a REAL, evidence-backed research engine that
+        # fetches actual http(s) URLs through an SSRF-defended pipeline. It is
+        # additive to (not a replacement for) the V8.3 ResearchMode above,
+        # which remains the honest declarative-provider state machine.
+        self.research_engine = ResearchEngine(db, self.bus, world_v2=self.world_v2)
         self.background = BackgroundCognition(
             db, self.bus, world_v2=self.world_v2, missions=self.missions,
             maintenance=self.maintenance, predictions=self.predictions,

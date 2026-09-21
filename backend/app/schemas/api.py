@@ -403,3 +403,29 @@ class ExplanationQueryRequest(BaseModel):
     correlation_id: str | None = Field(default=None, max_length=100)
     user_id: str | None = None
 
+
+# ----------------------------------------------------------- v8.4.3 requests
+class ResearchSessionCreateRequest(BaseModel):
+    """Start a Connected Research session (V8.4.3, real ResearchEngine)."""
+    question: str = Field(min_length=3, max_length=500)
+    user_id: str | None = None
+
+
+class ResearchFetchRequest(BaseModel):
+    """Fetch one explicit http(s) URL into a research session."""
+    url: str = Field(min_length=4, max_length=2000)
+    user_id: str | None = None
+
+
+class ResearchWorldProposeRequest(BaseModel):
+    """Propose (not yet apply) a bounded World Model update from a claim."""
+    claim_id: str = Field(min_length=1, max_length=120)
+    kind: str = Field(min_length=1, max_length=30)
+    label: str = Field(min_length=1, max_length=200)
+    user_id: str | None = None
+
+
+class ResearchWorldApplyRequest(BaseModel):
+    """Apply a previously proposed World Model update. Requires confirm=True."""
+    confirm: bool = Field(default=False)
+    user_id: str | None = None

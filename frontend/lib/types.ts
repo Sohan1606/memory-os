@@ -746,3 +746,154 @@ export interface ExplanationSnapshotMeta {
   summary: string;
   created_at: string;
 }
+
+// ----------------------------------------------------------- v8.4.3 types
+/**
+ * Connected Research. Every shape here mirrors the backend's
+ * ResearchEngine JSON exactly — the UI must never re-derive or guess a
+ * field the backend did not send.
+ */
+export interface ResearchSession {
+  id: string;
+  user_id: string;
+  question: string;
+  state: "DRAFT" | "RUNNING" | "PARTIAL" | "COMPLETED" | "BLOCKED" | "FAILED" | string;
+  provider_state: string;
+  correlation_id?: string | null;
+  source_count: number;
+  evidence_count: number;
+  claim_count: number;
+  conflict_count: number;
+  open_questions: string[];
+  detail: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResearchSource {
+  id: string;
+  session_id: string;
+  user_id: string;
+  canonical_url: string;
+  domain: string;
+  title: string | null;
+  publisher: string | null;
+  source_type: string;
+  source_quality: number | null;
+  availability: string;
+  metadata: string;
+  discovered_at: string;
+  created_at: string;
+}
+
+export interface ResearchFetch {
+  id: string;
+  session_id: string;
+  user_id: string;
+  source_id: string | null;
+  requested_url: string;
+  final_url: string | null;
+  status: "COMPLETED" | "FETCH_FAILED" | "BLOCKED" | "TIMEOUT" | string;
+  http_status: number | null;
+  content_type: string | null;
+  latency_ms: number | null;
+  redirect_count: number;
+  redirect_chain: string[];
+  content_hash: string | null;
+  bytes_read: number | null;
+  error_code: string | null;
+  error_detail: string | null;
+  correlation_id?: string | null;
+  fetched_at: string;
+  created_at: string;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  session_id: string;
+  user_id: string;
+  source_id: string;
+  fetch_id: string;
+  excerpt: string;
+  locator: string;
+  evidence_type: string;
+  evidence_strength: number;
+  source_quality: number;
+  freshness: string;
+  injection_flags: string[];
+  retrieved_at: string;
+  content_hash: string;
+  created_at: string;
+}
+
+export interface ResearchClaim {
+  id: string;
+  session_id: string;
+  user_id: string;
+  statement: string;
+  evidence_ids: string[];
+  source_ids: string[];
+  evidence_strength: number;
+  source_quality: number;
+  corroboration_count: number;
+  independent_domain_count: number;
+  freshness: string;
+  claim_confidence: number;
+  conflict_group: string | null;
+  status: "supported" | "contested" | "unsupported" | string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResearchConflict {
+  id: string;
+  session_id: string;
+  user_id: string;
+  conflict_group: string;
+  claim_ids: string[];
+  subject_key: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface ResearchWorldUpdate {
+  id: string;
+  session_id: string;
+  user_id: string;
+  claim_id: string;
+  world_entity_id: string | null;
+  kind: string;
+  label: string;
+  proposed_confidence: number;
+  applied_confidence: number | null;
+  state: "PROPOSED" | "APPLIED" | "REJECTED" | string;
+  reason: string;
+  correlation_id?: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface ResearchStatus {
+  available: boolean;
+  detail: string;
+  session_count: number;
+  limits: {
+    max_sources_per_session: number;
+    max_evidence_per_fetch: number;
+    max_claims_per_session: number;
+  };
+}
+
+export interface ResearchFetchResult {
+  status: string;
+  fetch_id?: string;
+  source_id?: string;
+  http_status?: number | null;
+  bytes_read?: number | null;
+  evidence_created?: number;
+  claims_created_or_updated?: number;
+  conflicts_detected?: number;
+  injection_flags?: string[];
+  error_code?: string | null;
+  detail: string;
+}

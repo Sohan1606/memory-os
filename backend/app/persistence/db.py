@@ -762,6 +762,172 @@ CREATE INDEX IF NOT EXISTS idx_explanations_subject
     ON explanation_snapshots(user_id, subject_kind, subject_id);
 """
 
+# ================= V8.4.3 CONNECTED RESEARCH SCHEMA =================
+# Additive only. The V8.3 `research_sessions` / `connectors` tables above are
+# untouched — ResearchMode keeps its honest BLOCKED-until-provider contract.
+# These new tables back the real ResearchEngine: sessions that actually fetch
+# real URLs, with a full source/fetch/evidence/claim provenance chain.
+SCHEMA_V843 = """
+CREATE TABLE IF NOT EXISTS research_sessions_v2 (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'DRAFT',
+    provider_state TEXT NOT NULL DEFAULT 'CONFIGURED',
+    correlation_id TEXT,
+    source_count INTEGER NOT NULL DEFAULT 0,
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    claim_count INTEGER NOT NULL DEFAULT 0,
+    conflict_count INTEGER NOT NULL DEFAULT 0,
+    open_questions TEXT,
+    detail TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_v2_user
+    ON research_sessions_v2(user_id, id DESC);
+
+-- A SOURCE is the identity of a place evidence came from (a URL/domain),
+-- distinct from any one FETCH attempt against it.
+CREATE TABLE IF NOT EXISTS research_sources (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    canonical_url TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    title TEXT,
+    publisher TEXT,
+    source_type TEXT NOT NULL DEFAULT 'web',
+    source_quality REAL,
+    availability TEXT NOT NULL DEFAULT 'UNKNOWN',
+    metadata TEXT,
+    discovered_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_sources_session
+    ON research_sources(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_research_sources_user
+    ON research_sources(user_id, domain);
+
+-- The FETCH LEDGER. Every outbound attempt is recorded, including failures —
+-- a failed source must never disappear from research history.
+CREATE TABLE IF NOT EXISTS research_fetches (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    source_id TEXT,
+    requested_url TEXT NOT NULL,
+    final_url TEXT,
+    status TEXT NOT NULL,
+    http_status INTEGER,
+    content_type TEXT,
+    latency_ms INTEGER,
+    redirect_count INTEGER NOT NULL DEFAULT 0,
+    redirect_chain TEXT,
+    content_hash TEXT,
+    bytes_read INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    error_detail TEXT,
+    correlation_id TEXT,
+    fetched_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_fetches_session
+    ON research_fetches(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_research_fetches_user
+    ON research_fetches(user_id, id DESC);
+
+-- EVIDENCE: an actual bounded excerpt retrieved from a real fetch. Never
+-- created without real fetched content behind it.
+CREATE TABLE IF NOT EXISTS research_evidence (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    fetch_id TEXT NOT NULL,
+    excerpt TEXT NOT NULL,
+    locator TEXT,
+    evidence_type TEXT NOT NULL DEFAULT 'excerpt',
+    evidence_strength REAL NOT NULL DEFAULT 0.5,
+    source_quality REAL,
+    freshness TEXT,
+    injection_flags TEXT,
+    retrieved_at TEXT NOT NULL,
+    content_hash TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_evidence_session
+    ON research_evidence(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_research_evidence_user
+    ON research_evidence(user_id, id DESC);
+
+-- CLAIMS: interpretations derived from evidence. Deterministic sentence-level
+-- extraction in this build — documented honestly, never described as
+-- semantic comprehension.
+CREATE TABLE IF NOT EXISTS research_claims (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    evidence_ids TEXT NOT NULL,
+    source_ids TEXT NOT NULL,
+    evidence_strength REAL NOT NULL DEFAULT 0.5,
+    source_quality REAL,
+    corroboration_count INTEGER NOT NULL DEFAULT 1,
+    independent_domain_count INTEGER NOT NULL DEFAULT 1,
+    freshness TEXT,
+    claim_confidence REAL NOT NULL DEFAULT 0.3,
+    conflict_group TEXT,
+    status TEXT NOT NULL DEFAULT 'unsupported',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_claims_session
+    ON research_claims(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_research_claims_user
+    ON research_claims(user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_research_claims_conflict
+    ON research_claims(session_id, conflict_group);
+
+-- CONFLICTS: groups of claims about the same subject with differing values.
+-- Both sides are always preserved — never silently resolved.
+CREATE TABLE IF NOT EXISTS research_conflicts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    conflict_group TEXT NOT NULL,
+    claim_ids TEXT NOT NULL,
+    subject_key TEXT,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_conflicts_session
+    ON research_conflicts(session_id, id);
+
+-- WORLD MODEL UPDATES proposed/applied from research claims. A user-driven
+-- promotion, always separately recorded, never automatic belief formation.
+CREATE TABLE IF NOT EXISTS research_world_updates (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    claim_id TEXT NOT NULL,
+    world_entity_id TEXT,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    proposed_confidence REAL NOT NULL,
+    applied_confidence REAL,
+    state TEXT NOT NULL DEFAULT 'PROPOSED',
+    reason TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_research_world_updates_session
+    ON research_world_updates(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_research_world_updates_user
+    ON research_world_updates(user_id, id DESC);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
@@ -810,6 +976,7 @@ class Database:
             conn.executescript(SCHEMA_V83)
             conn.executescript(SCHEMA_V841)
             conn.executescript(SCHEMA_V842)
+            conn.executescript(SCHEMA_V843)
         self._migrate()
 
     def _migrate(self) -> None:
