@@ -73,7 +73,10 @@ EXECUTION = ("execution.model_call", "execution.tool_decision",
              "execution.tool_result", "execution.model_revision",
              "execution.final_response", "execution.cancelled",
              "execution.limit_reached")
-ROUTING = ("routing.selected", "routing.degraded", "routing.not_configured")
+ROUTING = ("routing.selected", "routing.degraded", "routing.not_configured",
+           # V8.5.1: the capability router narrowed the advertised tool
+           # surface before the model made its (final, genuine) tool choice.
+           "routing.tool_surface")
 CONTINUITY = ("continuity.resumed", "continuity.item_opened",
               "continuity.item_closed")
 POLICY_V82 = ("policy.reverted",)
@@ -309,6 +312,7 @@ LABELS: dict[str, str] = {
     "routing.selected": "Chose how to run this",
     "routing.degraded": "Ran in a reduced mode",
     "routing.not_configured": "Could not run: capability not configured",
+    "routing.tool_surface": "Narrowed the tool surface for this turn",
     "continuity.resumed": "Picked up where we left off",
     "continuity.item_opened": "Started tracking something to return to",
     "continuity.item_closed": "Closed off something we were tracking",

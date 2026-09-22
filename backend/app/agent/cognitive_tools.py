@@ -1263,7 +1263,17 @@ def build_cognitive_tools(
     # model is never forced to supply a value it does not have, and explicit
     # true/false (or a real id string) still behave exactly as before.
     class _NullTolerant(BaseModel):
-        """Base schema that turns an explicit null into the field default."""
+        """Base schema that turns an explicit null into the field default.
+
+        V8.5.1: a real llama3.2:3b emitted {"open_only": "null"} — the JSON
+        null token serialised as a STRING — which strict validation rejected
+        and the user saw as TOOL_FAILED. The exact lowercase token "null" is
+        unambiguously a null representation, never a plausible value, so it
+        is normalised to None BEFORE the existing default substitution runs.
+        Nothing else is coerced: "true"/"false" keep Pydantic's normal strict
+        boolean handling, and any other string ("banana", "None", "NULL")
+        still fails validation loudly.
+        """
 
         @model_validator(mode="before")
         @classmethod
@@ -1272,6 +1282,9 @@ def build_cognitive_tools(
                 return data
             cleaned = {}
             for key, value in data.items():
+                if value == "null" and key in cls.model_fields:
+                    # The JSON null token, stringified by the model.
+                    value = None
                 if value is None and key in cls.model_fields:
                     default = cls.model_fields[key].default
                     if default is not PydanticUndefined:
@@ -1561,9 +1574,12 @@ def build_cognitive_tools(
         StructuredTool.from_function(
             func=list_learned, name="list_learned",
             description="List actual learned Skills and Principles with lifecycle, "
-                        "confidence, reputation, scope and evidence counts. Use "
-                        "for 'what skills have you learned?' or 'what principles "
-                        "do you have?'.",
+                        "confidence, reputation, scope and evidence counts. The "
+                        "FIRST tool for 'what skills have you learned?', 'what "
+                        "have you learned?' or 'what principles do you have?' — "
+                        "including when the question also asks what evidence "
+                        "supports them. NOT a memory search and NOT the "
+                        "attention state.",
             args_schema=LearnedListArgs),
         StructuredTool.from_function(
             func=list_experiences, name="list_experiences",
@@ -1623,9 +1639,11 @@ def build_cognitive_tools(
             args_schema=NoArgs),
         StructuredTool.from_function(
             func=get_attention_state, name="get_attention_state",
-            description="Real findings from background upkeep and things the "
-                        "system chose not to raise. Use for 'anything I should "
-                        "know'.",
+            description="Real findings from BACKGROUND upkeep and things the "
+                        "system chose not to raise. Use ONLY for 'anything I "
+                        "should know' / 'anything you noticed'. NOT for "
+                        "missions, skills or memories — 'what am I working "
+                        "on' is list_missions/get_current_focus, never this.",
             args_schema=NoArgs),
         StructuredTool.from_function(
             func=get_historical_state, name="get_historical_state",

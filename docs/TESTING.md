@@ -505,3 +505,41 @@ register/login/session/logout, and token death after logout.
 
 The regression gate is unchanged: the ENTIRE backend suite must pass in one
 run (`pytest` from `backend/`), which includes every pre-V8.5 module.
+
+## V8.5.1 tool routing tests
+
+- **`test_v851_tool_routing.py`** (40 tests, deterministic — no Ollama
+  needed) — the capability-family tool-surface narrowing layer:
+  family selection for each of the five reported real-model failure
+  messages ("What missions am I currently working on?", "Resume it.",
+  "What skills have you learned…", "Why did you use that skill…");
+  whole-family advertising so the model keeps a genuine choice; memory
+  tools always offered; fail-open on no signal, broad messages, a missing
+  router or a router error; graph binding of the narrowed surface with a
+  single consistent surface across the initial call and revisions;
+  TOOL_SURFACE honesty in activity, `execution_traces` and the
+  `routing.tool_surface` bus event; out-of-surface calls still executing
+  (narrowing advertises, never blocks); the demo/no-provider fallback
+  contract unchanged; no fabricated TOOL_DECISION; a static check
+  that the real model path gained no command dispatch; and stringified-null
+  argument normalisation AT THE ACTUAL EXECUTION BOUNDARY: run_tool_safely
+  is exercised directly with raw model dicts, proving {"open_only": "null"}
+  yields a clean TOOL_RESULT identical to a real null / omitted argument,
+  "true"/"false" strings are not coerced, invalid strings ("banana",
+  "NULL", "None", "nil", "") still fail as TOOL_FAILED with a real
+  ValidationError, the untraced standalone path is covered, and duplicate
+  detection sees normalised arguments; plus graph-handoff
+  canonicalisation — a wrapper monkeypatching run_tool_safely the way the
+  V8.4.1 legacy regression does observes None (never the string "null"),
+  the exact Windows correct_learned payload retires the focused skill, and
+  invalid strings pass through the handoff untouched for validation to
+  reject.
+
+The five real-model regression tests in `test_v831_real_model.py`,
+`test_v841_real_model.py` and `test_v842_real_model.py` are unmodified and
+unweakened; they exercise the narrowed surface end-to-end against a live
+`llama3.2:3b` and skip loudly (NOT VERIFIED) when Ollama is absent.
+
+Browser QA: `tests/v851_browser_qa.py` (12 checks) — chat surface answers a
+mission question from the real registry, the agent-activity trail renders,
+Observatory panels load, mobile 390px layout, zero console errors.

@@ -1,12 +1,26 @@
 # PROJECT STATUS
 
-**Current milestone: MEMORY//OS V8.5 — Production Trust + Auth + Privacy + Multi-User + Observability.**
+**Current milestone: MEMORY//OS V8.5.1 — Real-Model Cognitive Tool Routing Reliability (correction on V8.5 Production Trust).**
 
 Every status below was produced by a command that was actually executed. Nothing
 is aspirational. Where a capability is absent it is marked
 `OPTIONAL / NOT CONFIGURED` rather than given a false PASS.
 
 Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
+
+## V8.5.1 tool routing reliability status
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Capability-family tool-surface narrowing (`CapabilityRouter.tool_surface`) | **PASS** | `test_v851_tool_routing.py` → **40 passed** — the five real-model failure inputs each activate the correct family; memory always offered; fail-open on no signal / broad message / router error; stringified `"null"` tool arguments normalised at the run_tool_safely execution boundary (proven through the actual invocation path) while invalid strings still fail strict validation |
+| Model still makes the final tool choice | **PASS** | narrowed surfaces always carry whole families (`resume_mission` AND `pause_mission`); no fabricated TOOL_DECISION; static no-command-dispatch check extended to the new code |
+| Narrowing never blocks execution | **PASS** | out-of-surface model call executes genuinely (`tools_node` keeps the full registry) |
+| Honest tracing of the narrowing | **PASS** | `TOOL_SURFACE` in activity + `execution_traces` + `routing.tool_surface` on the EventBus, once per turn |
+| Demo/no-provider fallback contract | **PASS** | unchanged; verified in the same suite |
+| Real-model tests (5 Windows failures) | **PASS on Windows** (real Ollama `llama3.2:3b`, 5/5); skip loudly in this sandbox (no Ollama); assertions unweakened |
+| Full backend regression incl. V8.5 security | **PASS** | **898 passed, 22 skipped** (exit 0) |
+| Frontend typecheck / lint / prod build | **PASS** | tsc clean, eslint clean, 8/8 pages |
+| Browser QA (chat activity, Observatory, mobile) | **PASS** | `tests/v851_browser_qa.py` → 12/12, no console errors |
 
 ## V8.5 production trust status
 

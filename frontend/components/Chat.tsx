@@ -23,6 +23,7 @@ const ACTIVITY_LABEL: Record<string, string> = {
   MEMORY_PRELOAD: "Searching long-term memory",
   MODEL_CALL: "Model responding",
   DEMO_PLANNER: "Deterministic demo planner",
+  TOOL_SURFACE: "Tool surface narrowed for this turn",
   TOOL_DECISION: "Tool selected",
   SEARCH_MEMORY: "search_memory executed",
   SAVE_MEMORY: "save_memory executed",

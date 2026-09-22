@@ -28,6 +28,7 @@ from typing import Any
 
 # Canonical trace stages.
 MODEL_CALL = "MODEL_CALL"
+TOOL_SURFACE = "TOOL_SURFACE"
 TOOL_DECISION = "TOOL_DECISION"
 TOOL_RESULT = "TOOL_RESULT"
 MODEL_REVISION = "MODEL_REVISION"
@@ -39,13 +40,14 @@ LIMIT_REACHED = "LIMIT_REACHED"
 TOOL_FAILED = "TOOL_FAILED"
 DUPLICATE_TOOL_CALL = "DUPLICATE_TOOL_CALL"
 
-STAGES = (MODEL_CALL, TOOL_DECISION, TOOL_RESULT, MODEL_REVISION,
+STAGES = (MODEL_CALL, TOOL_SURFACE, TOOL_DECISION, TOOL_RESULT, MODEL_REVISION,
           FINAL_RESPONSE, CONTEXT_BUILD, DEGRADED, CANCELLED, LIMIT_REACHED,
           TOOL_FAILED, DUPLICATE_TOOL_CALL)
 
 # Bus event emitted per stage, where one exists.
 _STAGE_EVENT = {
     MODEL_CALL: "execution.model_call",
+    TOOL_SURFACE: "routing.tool_surface",
     TOOL_DECISION: "execution.tool_decision",
     TOOL_RESULT: "execution.tool_result",
     MODEL_REVISION: "execution.model_revision",
@@ -55,6 +57,36 @@ _STAGE_EVENT = {
 }
 
 DEFAULT_MAX_TOOL_DEPTH = 4
+
+
+def normalize_model_tool_args(args: Any) -> Any:
+    """
+    Normalise a RAW model-generated tool-call argument structure at the
+    actual execution boundary, before LangChain/Pydantic validation.
+
+    V8.5.1 Windows verification: llama3.2:3b correctly selected
+    `list_missions` but serialised the JSON null token as the STRING
+    "null" ({"open_only": "null"}), which strict schema validation
+    rejected and the user saw as TOOL_FAILED. The exact lowercase token
+    "null" is the one spelling JSON permits for null — it is unambiguously
+    a null representation, never a plausible value.
+
+    Rules (deliberately minimal — this is NOT a coercion layer):
+      * the exact string "null" -> None, recursively through dicts/lists;
+      * EVERYTHING else is preserved byte-for-byte: "NULL", "None", "nil",
+        "banana", "", "true", "false" all pass through unchanged so normal
+        strict validation still rejects what it should reject;
+      * real booleans, real nulls, numbers and nested structures are
+        returned untouched.
+    """
+    if isinstance(args, dict):
+        return {key: normalize_model_tool_args(value)
+                for key, value in args.items()}
+    if isinstance(args, list):
+        return [normalize_model_tool_args(value) for value in args]
+    if isinstance(args, str) and args == "null":
+        return None
+    return args
 
 
 def _now() -> str:
@@ -266,6 +298,11 @@ def run_tool_safely(trace: ExecutionTrace, recorder: TraceRecorder | None,
     agent loop: the model receives the error text and gets a chance to recover.
     """
     name = getattr(tool, "name", str(tool))
+    # V8.5.1: the args dict is RAW model output. Normalise the stringified
+    # JSON null token ("null" -> None) HERE — the actual execution boundary —
+    # before LangChain hands it to strict schema validation. Nothing else is
+    # coerced; see normalize_model_tool_args.
+    args = normalize_model_tool_args(args)
 
     def emit(stage: str, detail: str, **payload: Any) -> None:
         if recorder is not None:

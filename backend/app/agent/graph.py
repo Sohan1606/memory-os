@@ -28,8 +28,9 @@ log = logging.getLogger(__name__)
 from ..memory import policy
 from ..memory.service import MemoryService
 from .execution import (DEGRADED, FINAL_RESPONSE, LIMIT_REACHED, MODEL_CALL,
-                        MODEL_REVISION, TOOL_DECISION, Cancellation,
-                        ExecutionTrace, run_tool_safely)
+                        MODEL_REVISION, TOOL_DECISION, TOOL_SURFACE,
+                        Cancellation, ExecutionTrace,
+                        normalize_model_tool_args, run_tool_safely)
 
 SYSTEM_PROMPT = """You are MEMORY//OS, an assistant with persistent long-term
 memory and a set of cognitive subsystems you reach through tools.
@@ -196,6 +197,9 @@ class MemoryAgent:
         self.turn_timeout_s = turn_timeout_s
         self._traces: dict[str, ExecutionTrace] = {}
         self._bundles: dict[str, Any] = {}
+        # v8.5.1: one ToolSurfaceDecision per run, so every model call in a
+        # turn sees the same advertised surface and the trace records it once.
+        self._surfaces: dict[str, Any] = {}
         self._graph = None
 
     # ----------------------------------------------------------- trace access
@@ -244,6 +248,79 @@ class MemoryAgent:
             except Exception as exc:  # never lose memory tools over this
                 log.warning("Cognitive tools unavailable this turn: %s", exc)
         return tools
+
+    # ------------------------------------------------- v8.5.1 tool surface
+    def _advertised_tools(self, state: AgentState, run_id: str, tools,
+                          trace: ExecutionTrace | None):
+        """
+        The subset of `tools` ADVERTISED to the model this turn.
+
+        v8.5.1: the existing CapabilityRouter narrows the tool surface to the
+        capability families that are plausibly relevant, so a small model
+        chooses between a handful of related tools instead of ~40 unrelated
+        schemas. Hard guarantees:
+
+          * Narrowing selects FAMILIES, never a final tool — the model still
+            makes the genuine TOOL_DECISION within the advertised surface.
+          * Fail open: no router, no signal, a broad message, or any error
+            means the FULL surface is offered.
+          * Advertising only: tools_node executes from the full registry, so
+            nothing the model asks for is blocked by this stage.
+          * Tools that belong to no known family are always advertised.
+
+        Returns (advertised_tools, surface_activity_entry_or_None). The
+        activity entry is produced once per run, when the decision is made.
+        """
+        router = self.router
+        if router is None or not hasattr(router, "tool_surface"):
+            return tools, None
+
+        surface = self._surfaces.get(run_id)
+        entry = None
+        if surface is None:
+            last = ""
+            for m in reversed(state["messages"]):
+                if isinstance(m, HumanMessage):
+                    last = str(m.content)
+                    break
+            focus_kinds: tuple[str, ...] = ()
+            cognition = getattr(self, "cognition", None)
+            if cognition is not None:
+                try:
+                    session = state.get("thread_id") or "default"
+                    focus_kinds = tuple(
+                        str(f.get("subject_kind") or "")
+                        for f in cognition.focus.current(
+                            state["user_id"], session_id=session))
+                except Exception:
+                    focus_kinds = ()
+            try:
+                surface = router.tool_surface(last, focus_kinds)
+            except Exception as exc:  # narrowing must never break a turn
+                log.warning("Tool-surface routing failed; full surface: %s", exc)
+                return tools, None
+            self._surfaces[run_id] = surface
+            detail = (f"Narrowed to families: {', '.join(surface.families)}"
+                      if surface.narrowed else
+                      "Full tool surface offered (no narrowing)")
+            self._emit(trace, TOOL_SURFACE, detail,
+                       families=list(surface.families),
+                       narrowed=surface.narrowed,
+                       advertised=len(surface.allowed))
+            entry = {"type": TOOL_SURFACE, "families": list(surface.families),
+                     "narrowed": surface.narrowed}
+
+        if not surface.narrowed:
+            return tools, entry
+
+        from ..providers.capabilities import TOOL_FAMILIES
+        family_tools = {t for f in TOOL_FAMILIES for t in f.tools}
+        allowed = set(surface.allowed)
+        narrowed = [t for t in tools
+                    if t.name in allowed or t.name not in family_tools]
+        if not narrowed:  # defensive: never bind an empty toolset
+            return tools, entry
+        return narrowed, entry
 
     def build(self):
         if self._graph is not None:
@@ -349,7 +426,12 @@ class MemoryAgent:
 
             if model is not None:
                 is_revision = bool(trace and trace.tool_rounds() > 0)
-                bound = model.bind_tools(tools)
+                # v8.5.1: advertise the capability-narrowed surface. The model
+                # makes the final tool choice from these bound tools; the
+                # execution registry in tools_node remains the full toolset.
+                advertised, surface_entry = agent_self._advertised_tools(
+                    state, run_id, tools, trace)
+                bound = model.bind_tools(advertised)
                 msgs = [SystemMessage(content=SYSTEM_PROMPT),
                         SystemMessage(content=context_block),
                         *([SystemMessage(content=style_block)] if style_block else []),
@@ -382,9 +464,11 @@ class MemoryAgent:
                     result["messages"] = [AIMessage(content=f"{last.content}\n\n[{note}]")]
                     return result
 
-                acts: list[dict[str, Any]] = [
+                acts: list[dict[str, Any]] = (
+                    [surface_entry] if surface_entry else [])
+                acts.append(
                     {"type": MODEL_REVISION if is_revision else MODEL_CALL,
-                     "provider": provider.name}]
+                     "provider": provider.name})
                 calls = getattr(response, "tool_calls", []) or []
                 for call in calls:
                     acts.append({"type": TOOL_DECISION, "tool": call["name"]})
@@ -426,7 +510,14 @@ class MemoryAgent:
             activity: list[dict[str, Any]] = []
             for call in (getattr(last, "tool_calls", None) or []):
                 name = call.get("name", "")
-                args = call.get("args", {}) or {}
+                # V8.5.1: the graph hands EXECUTION the canonical argument
+                # representation — the model's stringified JSON null token
+                # ("null") becomes a real None HERE, at the handoff, so every
+                # downstream consumer (run_tool_safely, its historical
+                # wrappers, the persisted trace) sees the same normalised
+                # dict. run_tool_safely keeps its own idempotent
+                # normalisation as defence for other callers.
+                args = normalize_model_tool_args(call.get("args", {}) or {})
                 tool = by_name.get(name)
                 if tool is None:
                     content = (f"TOOL_ERROR: no tool named '{name}' exists. "
@@ -755,6 +846,8 @@ class MemoryAgent:
     @staticmethod
     def _invoke_untraced(tool, args: dict[str, Any]) -> dict[str, Any]:
         """Tool invocation for a standalone agent with no trace wired."""
+        from .execution import normalize_model_tool_args
+        args = normalize_model_tool_args(args)
         try:
             return {"ok": True, "content": str(tool.invoke(args)),
                     "duplicate": False, "error": None}
@@ -848,6 +941,7 @@ class MemoryAgent:
         """Drop per-run scratch state so long-lived processes do not grow."""
         self._traces.pop(run_id, None)
         self._bundles.pop(run_id, None)
+        self._surfaces.pop(run_id, None)
 
     @staticmethod
     def _short_reason(text: str) -> str:

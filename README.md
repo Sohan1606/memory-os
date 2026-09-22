@@ -43,6 +43,18 @@ Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
 
+## New in V8.5.1
+
+V8.5.1 is a surgical reliability correction for real-model cognitive tool
+routing. A real `llama3.2:3b` offered ~40 tool schemas at once picked the
+wrong cognitive subsystem for natural questions ("What missions am I working
+on?" → `get_attention_state`). The existing `CapabilityRouter` now narrows
+the ADVERTISED tool surface to relevant capability families before the model
+makes its final — still genuine — tool choice. Narrowing selects families,
+never tools; fails open on ambiguity; never blocks execution; and is traced
+honestly as a `TOOL_SURFACE` stage / `routing.tool_surface` event. Details:
+[docs/V8.5.1.md](docs/V8.5.1.md).
+
 ## New in V8.5
 
 V8.5 makes the system production-trustworthy without weakening the cognitive

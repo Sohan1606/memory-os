@@ -525,3 +525,28 @@ subsystem's own measured state — `ACTIVE / DEGRADED / NOT_CONFIGURED /
 BLOCKED / FAILED` — and a required-dependency failure makes readiness 503.
 Metrics and logs carry no cognitive content; log/error strings pass a
 secret-shape redaction filter.
+
+## V8.5.1 — Tool-surface narrowing on the real model path
+
+The V8.2 `CapabilityRouter` gained one method, `tool_surface(message,
+focus_kinds)`, and the agent graph consults it exactly once per turn before
+binding tools:
+
+```
+agent_node
+  └─ _advertised_tools(state, run_id, tools, trace)
+       ├─ router.tool_surface(last_human_message, live_focus_kinds)
+       │    └─ ToolSurfaceDecision {families, allowed, narrowed, reason, signals}
+       ├─ TOOL_SURFACE trace stage + routing.tool_surface bus event (once)
+       └─ narrowed tool list → model.bind_tools(...)
+tools_node                       ← unchanged: executes from the FULL registry
+```
+
+Eight capability families (memory, missions, world, learned, explanation,
+awareness, portability, research) partition the ~40 tools. Signals are
+conservative word-boundary regexes plus live conversational focus kinds; a
+signal activates a whole family, never a tool. Memory is always offered.
+No signal, more than four substantive families, a missing router or a
+router failure all fail open to the full surface. The model's own
+`tool_calls` remain the only source of TOOL_DECISION entries, and the
+deterministic fallback planner is untouched.
