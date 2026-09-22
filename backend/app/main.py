@@ -1,14 +1,16 @@
 """MEMORY//OS FastAPI application."""
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import time
 import uuid
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, UploadFile, File
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from .cognition.autonomy import LEVELS
 from .cognition.events import EVENT_TYPES
@@ -39,6 +41,15 @@ from .schemas.api import (ResearchFetchRequest, ResearchSessionCreateRequest,
                           ResearchWorldApplyRequest, ResearchWorldProposeRequest)
 from .schemas.portability import (ExportCreateRequest, RestoreApplyRequest,
                                   RestoreDryRunRequest)
+from .schemas.security import (LoginRequest, RegisterRequest, RoleChangeRequest,
+                               UserCreateRequest, NamespaceMigrationRequest)
+from .security.context import (current_principal, current_request_id,
+                               get_principal, get_request_id)
+from .security.errors import (E_CSRF, E_FORBIDDEN, E_RATE_LIMITED,
+                              E_UNAUTHENTICATED, error_body)
+from .security.identity import AuthError, AuthorizationError
+from .security.observability import redact
+from .security.principal import Principal
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -47,13 +58,16 @@ app = FastAPI(
     title="MEMORY//OS API",
     description="Local-first AI agent with long-term memory. LangGraph + LangChain "
                 "+ ChromaDB + local embeddings + SQLite.",
-    version="8.4.3",
+    version="8.5",
 )
 
 origins = ["*"] if settings.cors_origins.strip() == "*" else [
     o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
-    CORSMiddleware, allow_origins=origins, allow_credentials=False,
+    CORSMiddleware, allow_origins=origins,
+    # Credentials (session cookie) may only cross origins that are explicitly
+    # allow-listed; the wildcard demo keeps the established V8.4.4 behavior.
+    allow_credentials=settings.cors_origins.strip() != "*",
     allow_methods=["*"], allow_headers=["*"],
 )
 
@@ -62,18 +76,277 @@ def rt() -> Runtime:
     return get_runtime()
 
 
+# ------------------------------------------------------------ V8.5 identity
+# Routes reachable WITHOUT a session when AUTH_MODE=required. Everything else
+# under /api requires an authenticated principal.
+PUBLIC_ROUTES = {
+    "/api/health", "/api/health/live", "/api/health/ready",
+    "/api/auth/login", "/api/auth/register", "/api/auth/session",
+}
+
+# Mutating methods that require the CSRF header when the request was
+# authenticated via the session COOKIE (bearer-token calls are CSRF-immune).
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+# Rate-limit categories per path prefix (most specific first).
+_RATE_CATEGORIES = (
+    ("/api/auth/", "auth"),
+    ("/api/research", "research"),
+    ("/api/portability/", "portability"),
+    ("/api/chat", "expensive"),
+    ("/api/sandbox", "expensive"),
+    ("/api/perceive", "expensive"),
+)
+
+
+def _rate_category(path: str) -> str:
+    for prefix, category in _RATE_CATEGORIES:
+        if path.startswith(prefix):
+            return category
+    return "api"
+
+
+def _extract_token(request: Request, cookie_name: str) -> str | None:
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return request.cookies.get(cookie_name) or None
+
+
+def _client_key(request: Request) -> str:
+    client = request.client
+    return client.host if client else "unknown"
+
+
+def _active_runtime() -> Runtime:
+    """The runtime the ROUTES will use. Tests override the `rt` dependency;
+    the middleware must honour the same override or it would construct (and
+    enforce against) a different Runtime than the handlers."""
+    override = app.dependency_overrides.get(rt)
+    return override() if override else get_runtime()
+
+
+@app.middleware("http")
+async def production_trust_middleware(request: Request, call_next):
+    """One enforcement point: correlation id, authentication, CSRF,
+    rate limiting, body-size bounds, latency metrics and safe errors."""
+    runtime = _active_runtime()
+    cfg = runtime.settings
+    request_id = request.headers.get("x-request-id", "").strip()[:64] \
+        or f"req_{uuid.uuid4().hex[:16]}"
+    rid_token = current_request_id.set(request_id)
+    principal_token = None
+    started = time.monotonic()
+    path = request.url.path
+    status_code = 500
+    try:
+        if not path.startswith("/api"):
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            return response
+
+        # ---- body size bound (Content-Length; declared size is enforced
+        # again by the portability layer's own byte-accurate caps).
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > cfg.max_request_bytes:
+            runtime.metrics.inc("security.oversized_requests")
+            status_code = 413
+            return JSONResponse(status_code=413, content=error_body(
+                413, None, request_id))
+
+        # ---- authentication
+        principal: Principal | None = None
+        if cfg.auth_mode == "required":
+            token = _extract_token(request, cfg.session_cookie_name)
+            if token:
+                try:
+                    principal = runtime.identity.verify_session(token)
+                except AuthError:
+                    principal = None
+            if principal is None and path not in PUBLIC_ROUTES:
+                runtime.metrics.inc("security.unauthenticated_requests")
+                status_code = 401
+                return JSONResponse(status_code=401, content=error_body(
+                    401, None, request_id, code=E_UNAUTHENTICATED))
+            # ---- CSRF: cookie-authenticated mutations need the header.
+            # PUBLIC_ROUTES (login/register) are exempt: the login page cannot
+            # hold a CSRF token before a session exists, and those routes are
+            # rate-limited per client instead.
+            if (principal is not None and path not in PUBLIC_ROUTES
+                    and request.method in _CSRF_METHODS
+                    and not request.headers.get("authorization", "").lower().startswith("bearer ")
+                    and request.cookies.get(cfg.session_cookie_name)):
+                sent = request.headers.get("x-csrf-token", "")
+                if not sent or not hmac.compare_digest(
+                        sent, principal.csrf_token or ""):
+                    runtime.metrics.inc("security.csrf_rejected")
+                    try:
+                        runtime.cognition.bus.emit(
+                            principal.namespace, "security.suspicious_request",
+                            "Rejected a mutation without a valid CSRF token.",
+                            subject_kind="request", subject_id=request_id,
+                            payload={"path": path, "method": request.method})
+                    except Exception:  # pragma: no cover
+                        pass
+                    status_code = 403
+                    return JSONResponse(status_code=403, content=error_body(
+                        403, "The request failed CSRF validation.", request_id,
+                        code=E_CSRF))
+        else:
+            # V8.4.4-compatible local mode: one anonymous local principal.
+            principal = Principal.local(cfg.demo_user_id)
+
+        principal_token = current_principal.set(principal)
+
+        # ---- rate limiting (per principal; per client for anonymous auth).
+        category = _rate_category(path)
+        limiter_key = principal.user_id if principal else _client_key(request)
+        if category == "auth":
+            limiter_key = _client_key(request)
+        allowed, limit, remaining = runtime.rate_limiter.check(limiter_key, category)
+        if not allowed:
+            runtime.metrics.inc("security.rate_limited_total")
+            try:
+                runtime.cognition.bus.emit(
+                    principal.namespace if principal else cfg.demo_user_id,
+                    "security.rate_limited",
+                    "Rejected a request that exceeded the rate limit.",
+                    subject_kind="request", subject_id=request_id,
+                    payload={"path": path, "category": category, "limit": limit})
+            except Exception:  # pragma: no cover
+                pass
+            status_code = 429
+            response = JSONResponse(status_code=429, content=error_body(
+                429, None, request_id, code=E_RATE_LIMITED))
+            response.headers["Retry-After"] = "60"
+            response.headers["X-RateLimit-Limit"] = str(limit)
+            return response
+
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    except Exception:
+        # Production-safe 500: full detail (redacted) to the log, stable
+        # envelope with the correlation id to the client. Never a stack trace.
+        log.exception("Unhandled error for %s %s [%s]",
+                      request.method, path, request_id)
+        runtime.metrics.inc("http.unhandled_exceptions")
+        status_code = 500
+        return JSONResponse(status_code=500, content=error_body(500, None, request_id))
+    finally:
+        elapsed_ms = (time.monotonic() - started) * 1000
+        if path.startswith("/api"):
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", path)
+            try:
+                runtime.metrics.observe_request(route_path, request.method,
+                                                status_code, elapsed_ms)
+            except Exception:  # pragma: no cover - metrics never break requests
+                pass
+        if principal_token is not None:
+            current_principal.reset(principal_token)
+        current_request_id.reset(rid_token)
+
+
+def principal_or_401() -> Principal:
+    p = get_principal()
+    if p is None:
+        raise HTTPException(status_code=401, detail="Authentication is required.")
+    return p
+
+
+def require_permission(permission: str, runtime: Runtime) -> Principal:
+    p = principal_or_401()
+    if not p.can(permission):
+        runtime.metrics.inc("security.authorization_denied_total")
+        try:
+            runtime.cognition.bus.emit(
+                p.namespace, "authorization.denied",
+                "Denied a request lacking the required permission.",
+                subject_kind="request", subject_id=get_request_id() or "unknown",
+                payload={"permission": permission, "role": p.role})
+        except Exception:  # pragma: no cover
+            pass
+        raise HTTPException(status_code=403,
+                            detail="You do not have permission to do that.")
+    return p
+
+
 def uid(runtime: Runtime, provided: str | None) -> str:
+    """Resolve the namespace for this request.
+
+    V8.5 rule: when authentication is REQUIRED the namespace comes ONLY from
+    the verified session — any caller-supplied user_id is ignored, so no ID
+    substitution (IDOR) is possible at any /api surface or tool. In disabled
+    mode the established V8.4.4 behavior (optional explicit user_id, demo
+    default) is preserved exactly.
+    """
+    principal = get_principal()
+    if runtime.settings.auth_mode == "required":
+        if principal is None:
+            raise HTTPException(status_code=401, detail="Authentication is required.")
+        return principal.namespace
     return (provided or runtime.settings.demo_user_id).strip()[:100]
+
+
+def ensure_owner(runtime: Runtime, owner_namespace: str | None) -> None:
+    """Object-level ownership check for routes addressed by bare object id.
+
+    In `required` mode a mismatch is indistinguishable from absence (404), so
+    guessed or substituted IDs leak neither data nor existence. In `disabled`
+    mode the established single-user V8.4.4 behavior is preserved unchanged.
+    """
+    if runtime.settings.auth_mode != "required":
+        return
+    principal = principal_or_401()
+    if owner_namespace != principal.namespace:
+        runtime.metrics.inc("security.idor_blocked")
+        try:
+            runtime.cognition.bus.emit(
+                principal.namespace, "authorization.denied",
+                "Blocked access to an object owned by another user.",
+                subject_kind="request", subject_id=get_request_id() or "unknown",
+                payload={"reason": "ownership_mismatch"})
+        except Exception:  # pragma: no cover
+            pass
+        raise HTTPException(status_code=404, detail="Object not found.")
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request, exc: HTTPException):
+    """Wrap every HTTPException in the stable V8.5 envelope. `detail` is
+    preserved verbatim so all established V8.4.4 clients keep working."""
+    detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
+    return JSONResponse(status_code=exc.status_code,
+                        content=error_body(exc.status_code, redact(detail),
+                                           get_request_id()),
+                        headers=getattr(exc, "headers", None))
 
 
 @app.exception_handler(ValueError)
 async def value_error_handler(_request, exc: ValueError):
-    return JSONResponse(status_code=400, content={"detail": str(exc)})
+    return JSONResponse(status_code=400, content=error_body(
+        400, redact(str(exc)), get_request_id()))
 
 
 @app.exception_handler(KeyError)
 async def key_error_handler(_request, _exc: KeyError):
-    return JSONResponse(status_code=404, content={"detail": "Object not found."})
+    return JSONResponse(status_code=404, content=error_body(
+        404, "Object not found.", get_request_id()))
+
+
+@app.exception_handler(AuthError)
+async def auth_error_handler(_request, exc: AuthError):
+    return JSONResponse(status_code=401, content=error_body(
+        401, str(exc), get_request_id(), code=E_UNAUTHENTICATED))
+
+
+@app.exception_handler(AuthorizationError)
+async def authz_error_handler(_request, exc: AuthorizationError):
+    return JSONResponse(status_code=403, content=error_body(
+        403, str(exc), get_request_id(), code=E_FORBIDDEN))
 
 
 # ---------------------------------------------------------------- diagnostics
@@ -82,10 +355,200 @@ def health(runtime: Runtime = Depends(rt)) -> dict[str, Any]:
     return runtime.health()
 
 
+@app.get("/api/health/live")
+def health_live() -> dict[str, Any]:
+    """Liveness ONLY: the process is up and serving. Says nothing about
+    dependencies — that is what /api/health/ready is for."""
+    return {"status": "alive"}
+
+
+@app.get("/api/health/ready")
+def health_ready(runtime: Runtime = Depends(rt)):
+    """Readiness + per-dependency truth (ACTIVE / DEGRADED / NOT_CONFIGURED /
+    BLOCKED / FAILED). Returns 503 when a REQUIRED dependency has failed."""
+    report = runtime.readiness()
+    status = 200 if report["status"] == "ready" else 503
+    return JSONResponse(status_code=status, content=report)
+
+
+@app.get("/api/metrics")
+def metrics_endpoint(runtime: Runtime = Depends(rt)):
+    """Operational metrics. Counts and latencies only — labels are route
+    templates and coarse categories, never cognitive content."""
+    require_permission("health.read", runtime)
+    return runtime.metrics.snapshot()
+
+
+# -------------------------------------------------------------- V8.5 auth
+def _session_cookie(response: Response, token: str, cfg) -> None:
+    response.set_cookie(
+        cfg.session_cookie_name, token,
+        max_age=int(cfg.session_ttl_hours * 3600),
+        httponly=True, samesite="lax", secure=cfg.cookie_secure,
+        path="/")
+
+
+@app.post("/api/auth/register", status_code=201)
+def auth_register(req: RegisterRequest, runtime: Runtime = Depends(rt)):
+    if runtime.settings.auth_mode != "required":
+        raise HTTPException(status_code=404, detail="Authentication is not enabled.")
+    try:
+        user = runtime.identity.register(
+            email=req.email, password=req.password, display_name=req.display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"user": user}
+
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest, request: Request, runtime: Runtime = Depends(rt)):
+    if runtime.settings.auth_mode != "required":
+        raise HTTPException(status_code=404, detail="Authentication is not enabled.")
+    token, principal = runtime.identity.login(
+        email=req.email, password=req.password,
+        client=request.headers.get("user-agent", "")[:200])
+    body = {"user": principal.as_dict(), "csrf_token": principal.csrf_token,
+            "token": token, "token_type": "bearer",
+            "expires_in_hours": runtime.settings.session_ttl_hours}
+    response = JSONResponse(content=body)
+    _session_cookie(response, token, runtime.settings)
+    return response
+
+
+@app.post("/api/auth/logout")
+def auth_logout(runtime: Runtime = Depends(rt)):
+    if runtime.settings.auth_mode != "required":
+        raise HTTPException(status_code=404, detail="Authentication is not enabled.")
+    principal = principal_or_401()
+    runtime.identity.logout(principal)
+    response = JSONResponse(content={"logged_out": True})
+    response.delete_cookie(runtime.settings.session_cookie_name, path="/")
+    return response
+
+
+@app.get("/api/auth/session")
+def auth_session(runtime: Runtime = Depends(rt)):
+    """The authenticated principal for this request (Observatory surface)."""
+    principal = get_principal()
+    if runtime.settings.auth_mode != "required":
+        return {"auth_mode": "disabled",
+                "user": Principal.local(runtime.settings.demo_user_id).as_dict(),
+                "note": "Local single-user mode. Authentication is not enabled."}
+    if principal is None:
+        return {"auth_mode": "required", "user": None}
+    return {"auth_mode": "required", "user": principal.as_dict(),
+            "session_id": principal.session_id}
+
+
+@app.get("/api/auth/sessions")
+def auth_sessions(runtime: Runtime = Depends(rt)):
+    """The caller's OWN sessions (id, lifecycle, client). Never tokens."""
+    principal = principal_or_401()
+    if runtime.settings.auth_mode != "required":
+        return {"sessions": []}
+    return {"sessions": runtime.identity.list_sessions(principal.user_id)}
+
+
+@app.post("/api/auth/sessions/{session_id}/revoke")
+def auth_revoke_session(session_id: str, runtime: Runtime = Depends(rt)):
+    principal = principal_or_401()
+    try:
+        runtime.identity.revoke_session(principal, session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return {"revoked": session_id}
+
+
+# ------------------------------------------------------------- V8.5 admin
+@app.get("/api/admin/users")
+def admin_list_users(runtime: Runtime = Depends(rt)):
+    principal = require_permission("users.manage", runtime)
+    return {"users": runtime.identity.list_users(principal.tenant_id)}
+
+
+@app.post("/api/admin/users", status_code=201)
+def admin_create_user(req: UserCreateRequest, runtime: Runtime = Depends(rt)):
+    principal = require_permission("users.manage", runtime)
+    if req.role == "owner" or (req.role == "admin" and not principal.can("roles.manage")):
+        raise HTTPException(status_code=403,
+                            detail="You do not have permission to grant that role.")
+    try:
+        user = runtime.identity.create_user(
+            email=req.email, password=req.password, display_name=req.display_name,
+            tenant_id=principal.tenant_id, role=req.role, actor=principal)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"user": user}
+
+
+@app.post("/api/admin/users/{user_id}/disable")
+def admin_disable_user(user_id: str, runtime: Runtime = Depends(rt)):
+    principal = require_permission("users.manage", runtime)
+    try:
+        return {"user": runtime.identity.disable_user(principal, user_id)}
+    except AuthorizationError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/admin/users/{user_id}/role")
+def admin_change_role(user_id: str, req: RoleChangeRequest,
+                      runtime: Runtime = Depends(rt)):
+    principal = require_permission("roles.manage", runtime)
+    try:
+        return {"user": runtime.identity.change_role(principal, user_id, req.role)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/admin/migrate-legacy-namespace")
+def admin_migrate_namespace(req: NamespaceMigrationRequest,
+                            runtime: Runtime = Depends(rt)):
+    """Deterministic single-user → multi-user migration: the OWNER adopts the
+    pre-V8.5 namespace so every V8.4.4 memory, event, world entity, research
+    session and portability record becomes theirs. Idempotent."""
+    principal = require_permission("roles.manage", runtime)
+    legacy = (req.legacy_namespace or runtime.settings.demo_user_id).strip()[:100]
+    try:
+        return runtime.identity.migrate_legacy_namespace(principal.user_id, legacy)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/admin/security-events")
+def admin_security_events(limit: int = 100, runtime: Runtime = Depends(rt)):
+    """Security/audit events for the caller's namespace, from the canonical
+    EventBus. Admin-scoped; payloads contain identifiers, never secrets."""
+    principal = require_permission("security.read", runtime)
+    types = ["auth.registered", "auth.login", "auth.logout", "auth.failed",
+             "session.revoked", "session.expired", "authorization.denied",
+             "permission.changed", "user.created", "user.disabled",
+             "export.accessed", "security.rate_limited",
+             "security.suspicious_request", "admin.action"]
+    events = runtime.cognition.bus.recent(
+        principal.namespace, limit=min(max(limit, 1), 500), types=types)
+    return {"events": [e.as_dict() for e in events]}
+
+
+@app.get("/api/admin/rate-limit")
+def admin_rate_limit_state(runtime: Runtime = Depends(rt)):
+    require_permission("security.read", runtime)
+    return runtime.rate_limiter.state()
+
+
 # ---------------------------------------------------------------------- chat
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, runtime: Runtime = Depends(rt)) -> ChatResponse:
     user_id = uid(runtime, req.user_id)
+    # V8.5: thread ids are client-chosen but conversations are owned. If this
+    # thread already belongs to another user, refuse — otherwise the LangGraph
+    # checkpoint (keyed by thread id alone) would resume a foreign dialogue.
+    existing_thread = runtime.db.query_one(
+        "SELECT user_id FROM conversations WHERE id=?", (req.thread_id,))
+    if existing_thread and existing_thread["user_id"] != user_id:
+        raise HTTPException(status_code=409,
+                            detail="That conversation id is already in use.")
     runtime.db.execute(
         "INSERT OR IGNORE INTO conversations (id, user_id, title, created_at, updated_at)"
         " VALUES (?, ?, ?, datetime('now'), datetime('now'))",
@@ -201,8 +664,13 @@ def thread_messages(thread_id: str, user_id: str | None = None,
     rows = runtime.db.query(
         "SELECT role, content, created_at FROM messages WHERE thread_id=? AND user_id=?"
         " ORDER BY id ASC", (thread_id, u))
+    # V8.5: LangGraph checkpoints are keyed by thread id alone, so they are
+    # only returned when this caller owns messages in the thread. Otherwise a
+    # guessed thread id would read another user's conversation state.
+    owns_thread = bool(rows) or bool(runtime.db.query_one(
+        "SELECT 1 FROM conversations WHERE id=? AND user_id=?", (thread_id, u)))
     return {"thread_id": thread_id, "messages": [dict(r) for r in rows],
-            "checkpoint_messages": runtime.agent.history(thread_id)}
+            "checkpoint_messages": runtime.agent.history(thread_id) if owns_thread else []}
 
 
 @app.delete("/api/conversations/{thread_id}")
@@ -274,6 +742,7 @@ def get_memory(memory_id: str, runtime: Runtime = Depends(rt)):
     mem = runtime.memory.get(memory_id)
     if not mem:
         raise HTTPException(status_code=404, detail="Memory not found")
+    ensure_owner(runtime, mem.user_id)
     return {"memory": mem.to_dict(), "versions": runtime.memory.versions(memory_id),
             "related": [runtime.memory.get(r).to_dict()
                         for r in mem.related_memory_ids if runtime.memory.get(r)]}
@@ -281,6 +750,10 @@ def get_memory(memory_id: str, runtime: Runtime = Depends(rt)):
 
 @app.patch("/api/memories/{memory_id}")
 def update_memory(memory_id: str, req: MemoryUpdateRequest, runtime: Runtime = Depends(rt)):
+    existing = runtime.memory.get(memory_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    ensure_owner(runtime, existing.user_id)
     try:
         mem = runtime.memory.update(memory_id, content=req.content, category=req.category,
                                     importance=req.importance, reason=req.reason)
@@ -291,6 +764,10 @@ def update_memory(memory_id: str, req: MemoryUpdateRequest, runtime: Runtime = D
 
 @app.delete("/api/memories/{memory_id}")
 def delete_memory(memory_id: str, runtime: Runtime = Depends(rt)):
+    existing = runtime.memory.get(memory_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    ensure_owner(runtime, existing.user_id)
     if not runtime.memory.delete(memory_id):
         raise HTTPException(status_code=404, detail="Memory not found")
     return {"deleted": memory_id}
@@ -377,10 +854,19 @@ def verify_portability_export(export_id: str, user_id: str | None = None,
 @app.get("/api/portability/v1/exports/{export_id}/download")
 def download_portability_export(export_id: str, user_id: str | None = None,
                                 runtime: Runtime = Depends(rt)):
+    user = uid(runtime, user_id)
     try:
-        path = runtime.portability.export_path(uid(runtime, user_id), export_id)
+        path = runtime.portability.export_path(user, export_id)
     except (KeyError, FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # V8.5 audit: package downloads are security-sensitive reads.
+    try:
+        runtime.cognition.bus.emit(
+            user, "export.accessed", "An export package was downloaded.",
+            subject_kind="export", subject_id=export_id,
+            payload={"request_id": get_request_id()})
+    except Exception:  # pragma: no cover - audit must not block the download
+        pass
     return FileResponse(path, media_type="application/zip", filename=f"{export_id}.zip")
 
 
@@ -486,6 +972,11 @@ def portability_import_explanation(import_id: str, intent: str = "why",
 
 @app.post("/api/reset")
 def reset(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    if runtime.settings.auth_mode == "required":
+        # The demo reset is a single-user convenience; in multi-user mode it
+        # would be a destructive cross-namespace hazard, so it is disabled.
+        raise HTTPException(status_code=403,
+                            detail="Demo reset is disabled when authentication is required.")
     if uid(runtime, user_id) != runtime.settings.demo_user_id:
         raise HTTPException(status_code=400, detail="Reset applies to the demo user only.")
     count = runtime.reset_demo()
@@ -555,6 +1046,7 @@ def cognition_turn(correlation_id: str, runtime: Runtime = Depends(rt)):
     events = runtime.cognition.bus.for_correlation(correlation_id)
     if not events:
         raise HTTPException(status_code=404, detail="Unknown correlation id.")
+    ensure_owner(runtime, events[0].user_id)
     return {"correlation_id": correlation_id,
             "events": [e.as_dict() for e in events], "count": len(events)}
 
@@ -1053,6 +1545,7 @@ def execution_trace(correlation_id: str, runtime: Runtime = Depends(rt)):
     if not steps:
         raise HTTPException(status_code=404,
                             detail="No execution trace for that correlation id.")
+    ensure_owner(runtime, steps[0].get("user_id"))
     return {"correlation_id": correlation_id, "steps": steps,
             "count": len(steps)}
 
@@ -1077,6 +1570,7 @@ def arbitration_detail(arbitration_id: str, runtime: Runtime = Depends(rt)):
     record = runtime.cognition.arbiter_v2.get(arbitration_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Unknown arbitration record.")
+    ensure_owner(runtime, record.get("user_id"))
     return record
 
 

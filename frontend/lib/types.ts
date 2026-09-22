@@ -953,3 +953,61 @@ export interface RestoreOperation {
   started_at: string;
   finished_at?: string | null;
 }
+
+// ------------------------------------------------------------------ v8.5
+export interface SessionPrincipal {
+  user_id: string;
+  tenant_id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  namespace: string;
+  permissions: string[];
+}
+
+export interface AuthSessionResponse {
+  auth_mode: "disabled" | "required";
+  user: SessionPrincipal | null;
+  session_id?: string;
+  note?: string;
+}
+
+export interface DependencyState {
+  state: "ACTIVE" | "DEGRADED" | "NOT_CONFIGURED" | "BLOCKED" | "FAILED";
+  detail: string;
+  required: boolean;
+}
+
+export interface ReadinessReport {
+  status: "ready" | "not_ready";
+  degraded_capabilities: string[];
+  dependencies: Record<string, DependencyState>;
+  auth_mode: string;
+}
+
+export interface MetricsSnapshot {
+  scope: string;
+  uptime_seconds: number;
+  counters: Record<string, number>;
+  requests: Record<string, {
+    count: number; avg_ms: number; max_ms: number;
+    buckets_ms: Record<string, number>;
+  }>;
+}
+
+export interface SecurityEvent {
+  id: number;
+  type: string;
+  summary: string;
+  subject_kind?: string | null;
+  subject_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RateLimitState {
+  enabled: boolean;
+  window_seconds: number;
+  limits_per_minute: Record<string, number>;
+  active_buckets: number;
+}

@@ -447,3 +447,61 @@ dry-run blockers, explicit confirmation, restore history, the structured
 portability tools, frontend typecheck/lint/build, clean extraction, and release
 ZIP contents/hash. A blocked or failed restore must never be represented as a
 successful UI operation.
+
+---
+
+## V8.5 production trust tests
+
+Six dedicated suites (`backend/tests/test_v85_*.py`, shared helpers in
+`conftest_v85.py`; every secure runtime uses `AUTH_MODE=required` with a
+lowered PBKDF2 cost for speed — the production default stays 600k):
+
+- **`test_v85_auth.py`** — password hashing round-trip and no-plaintext
+  storage, register→login→session→logout, uniform invalid-credential
+  failures (no account oracle), unauthenticated 401s, server-side expiry,
+  session revocation, fixation impossibility (fresh token per login,
+  independent revocation), hashed-only token storage, cookie flags
+  (HttpOnly/SameSite/Path), disabled-account lockout, registration
+  validation.
+- **`test_v85_authorization.py`** — least-privilege role model, member vs
+  admin surfaces (403 + audited denial), admin-to-owner escalation blocked,
+  role changes audited, cross-tenant admin actions answer 404, mass
+  assignment rejected by strict schemas, self-disable/self-demote refused.
+- **`test_v85_isolation.py`** — the multi-user proof: memories, search,
+  events, turn replay, execution traces, conversations, world state,
+  portability exports/downloads, foreign-package import rejection, restore
+  history, research sessions, explanations, skills/principles, decisions,
+  missions; direct-id IDOR, query/body `user_id` substitution, thread-id
+  collision refusal, tools bound to the principal namespace (no
+  user/tenant parameter exists in any tool schema), and direct database
+  owner-scoping checks.
+- **`test_v85_security.py`** — auth/API/portability rate limits (429,
+  Retry-After, per-principal buckets, metric + audit event), CSRF
+  (cookie mutations need the header; wrong/missing header → 403; bearer
+  exempt), oversized requests (413), malformed input, no stack
+  traces/paths in errors, no password material in login responses,
+  redaction filter, repository-wide static secret scan, `.env.example`
+  placeholder check, and the PRODUCTION configuration gate (unsafe config
+  refuses startup).
+- **`test_v85_audit_observability.py`** — security events are canonical
+  EventBus types stored in `cognitive_events` (no parallel audit store),
+  full auth lifecycle audited, audit payloads secret-free with redacted
+  emails, X-Request-ID generation/echo/propagation into error bodies,
+  metrics counters and route-template labels with zero private content,
+  liveness vs readiness semantics, dependency truth vocabulary, admin
+  security-event review, observable rate-limit state.
+- **`test_v85_migration.py`** — a real single-user database built through
+  the disabled-mode (V8.4.4 behavior) path reopens under required mode
+  with every row intact; the owner adopts the legacy namespace and sees
+  the full pre-upgrade cognitive state (including pre-upgrade exports);
+  adoption is idempotent; a second account cannot steal the namespace;
+  the schema upgrade is additive only.
+
+Browser QA: `tests/v85_browser_qa.py` (16 checks) drives the production
+build — Security and System-health panels render honest states, mobile
+390px layout, zero console errors, no hash/token leakage — and, against a
+second backend running `AUTH_MODE=required`, verifies anonymous 401,
+register/login/session/logout, and token death after logout.
+
+The regression gate is unchanged: the ENTIRE backend suite must pass in one
+run (`pytest` from `backend/`), which includes every pre-V8.5 module.

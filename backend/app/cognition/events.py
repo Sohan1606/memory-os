@@ -167,6 +167,27 @@ PORTABILITY_V844 = (
     "restore.failed", "restore.rolled_back", "restore.conflict_detected",
 )
 
+# --------------------------------------------------------------- v8.5 events
+# Production trust. Security and audit events live on this SAME canonical bus:
+# there is deliberately no parallel audit store. Every security-sensitive
+# mutation (login, logout, denial, role change, revocation, rate limit) is a
+# first-class cognitive event, persisted to cognitive_events and observable
+# through the same reads as every other subsystem.
+#
+# PRIVACY RULE: summaries and payloads for these events carry identifiers and
+# coarse metadata only — never passwords, tokens, secret values, or the text
+# of any memory. `auth.failed` records the attempted email's redacted form,
+# not credentials.
+SECURITY_V85 = (
+    "auth.registered", "auth.login", "auth.logout", "auth.failed",
+    "session.revoked", "session.expired",
+    "authorization.denied", "permission.changed",
+    "user.created", "user.disabled",
+    "export.accessed",
+    "security.rate_limited", "security.suspicious_request",
+    "admin.action",
+)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -178,7 +199,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + OBSERVATION + OUTCOME_V83 + SIMULATION + BACKGROUND + MAINTENANCE_V83
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
-    + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844
+    + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844 + SECURITY_V85
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -424,6 +445,21 @@ LABELS: dict[str, str] = {
     "restore.failed": "A restore failed",
     "restore.rolled_back": "Rolled back a failed restore",
     "restore.conflict_detected": "Found a restore conflict requiring your choice",
+    # ---------------------------------------------------------------- v8.5
+    "auth.registered": "Created your account",
+    "auth.login": "You signed in",
+    "auth.logout": "You signed out",
+    "auth.failed": "Rejected a failed sign-in attempt",
+    "session.revoked": "Revoked a session",
+    "session.expired": "A session expired",
+    "authorization.denied": "Denied an unauthorized request",
+    "permission.changed": "Changed a role or permission",
+    "user.created": "Added a user to the workspace",
+    "user.disabled": "Disabled a user account",
+    "export.accessed": "An export package was downloaded",
+    "security.rate_limited": "Slowed down a caller exceeding rate limits",
+    "security.suspicious_request": "Flagged a suspicious request",
+    "admin.action": "An administrative action was performed",
 }
 
 

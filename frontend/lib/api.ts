@@ -20,6 +20,8 @@ import type {
   ResearchClaim, ResearchConflict, ResearchWorldUpdate, ResearchStatus,
   ResearchFetchResult, PortabilityExport, PortabilityImport, PortabilityPlan,
   RestoreConflict, RestoreOperation,
+  AuthSessionResponse, ReadinessReport, MetricsSnapshot, SecurityEvent,
+  RateLimitState,
 } from "./types";
 
 export class ApiError extends Error {
@@ -563,4 +565,20 @@ export const api = {
 
   portabilityHistory: () =>
     request<{ operations: RestoreOperation[] }>("/api/portability/v1/restore-history"),
+
+  // --------------------------------------------------------- v8.5
+  authSession: () => request<AuthSessionResponse>("/api/auth/session"),
+
+  readiness: async (): Promise<ReadinessReport> => {
+    // 503 (not_ready) still carries the full dependency report.
+    const res = await fetch("/api/health/ready", { cache: "no-store" });
+    return (await res.json()) as ReadinessReport;
+  },
+
+  metrics: () => request<MetricsSnapshot>("/api/metrics"),
+
+  securityEvents: () =>
+    request<{ events: SecurityEvent[] }>("/api/admin/security-events"),
+
+  rateLimitState: () => request<RateLimitState>("/api/admin/rate-limit"),
 };

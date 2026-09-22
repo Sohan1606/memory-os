@@ -23,7 +23,9 @@ import ProviderPanel from "@/components/observatory/ProviderPanel";
 import PortabilityPanel from "@/components/observatory/PortabilityPanel";
 import ResearchPanel from "@/components/observatory/ResearchPanel";
 import SandboxPanel from "@/components/observatory/SandboxPanel";
+import SecurityPanel from "@/components/observatory/SecurityPanel";
 import SelfPanel from "@/components/observatory/SelfPanel";
+import SystemHealthPanel from "@/components/observatory/SystemHealthPanel";
 import WhyInspector from "@/components/observatory/WhyInspector";
 import WorldPanel from "@/components/observatory/WorldPanel";
 import { Empty, Panel, Row, StateBadge } from "@/components/observatory/primitives";
@@ -112,6 +114,8 @@ export default function ObservatoryPage() {
         display: "grid", gap: "1.5rem",
         gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
       }}>
+        <SecurityPanel refreshKey={refreshKey} />
+        <SystemHealthPanel refreshKey={refreshKey} />
         <MissionPanel refreshKey={refreshKey} />
         <WorldPanel refreshKey={refreshKey} />
         <ExperienceSkillPrinciplePanel refreshKey={refreshKey} />

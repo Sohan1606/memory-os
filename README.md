@@ -1,6 +1,6 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.4.4 — Data Portability + Export + Recovery.**
+**MEMORY//OS V8.5 — Production Trust + Auth + Privacy + Multi-User + Observability.**
 
 A continuously maintained personal cognitive environment, operated through
 conversation. It remembers, learns evidence-backed Skills from meaningful
@@ -42,6 +42,30 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V8.5
+
+V8.5 makes the system production-trustworthy without weakening the cognitive
+architecture. Real authentication (`AUTH_MODE=required`): PBKDF2-hashed
+passwords, hashed 256-bit session tokens, login/logout/expiry/revocation, CSRF
+protection and secure cookies. Explicit authorization: tenant → users →
+cognitive namespaces with least-privilege `member`/`admin`/`owner` roles and no
+unrestricted admin. Proven user isolation: the namespace is resolved once from
+the verified session — caller-supplied ids are ignored at every API surface and
+in every conversational tool, bare-id routes answer 404 on ownership mismatch,
+and cross-user thread reuse is refused. Security audit events (`auth.login`,
+`authorization.denied`, `security.rate_limited`, …) live on the SAME canonical
+EventBus as every cognitive event. Production observability: request
+correlation ids, latency/error/auth-failure metrics with content-free labels,
+structured redacted JSON logs, and honest `/api/health/live` vs
+`/api/health/ready` with per-dependency `ACTIVE / DEGRADED / NOT_CONFIGURED /
+BLOCKED / FAILED` truth. Bounded rate limits on auth, APIs, research,
+portability and expensive cognition. A deterministic, idempotent migration
+lets the workspace owner adopt the V8.4.4 single-user namespace with zero data
+rewriting. The default `AUTH_MODE=disabled` preserves V8.4.4 local behavior
+exactly. Details: [`docs/V8.5.md`](docs/V8.5.md) ·
+[`docs/V8.5-SECURITY.md`](docs/V8.5-SECURITY.md) ·
+[`docs/V8.5-VERIFICATION.md`](docs/V8.5-VERIFICATION.md).
 
 ## New in V8.4.4
 
@@ -226,7 +250,14 @@ hardcoded datasets and no fake buttons.
 
 ## Limitations
 
-- Single-user demo namespace by default; there is no authentication
+- `AUTH_MODE=disabled` (the default) is the single-user local demo: no login
+  exists in that mode. Real multi-user auth requires `AUTH_MODE=required`
+- V8.5 rate limiting and metrics are per-process; multi-instance deployments
+  need shared backends
+- Password auth is the only built-in identity provider (the `IdentityService`
+  seam exists for OIDC/SSO); no MFA, password reset or email verification
+- The demo frontend has no login page; in required mode clients authenticate
+  through the API (bearer token or cookie + CSRF header)
 - Demo provider is deterministic, not generative
 - SQLite and local Chroma suit a single node, not horizontal scale
 - Voice depends on browser support (Chromium/Safari; Firefox lacks SpeechRecognition)

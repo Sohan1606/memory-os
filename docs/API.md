@@ -1,7 +1,76 @@
 # HTTP API
 
 Base URL `http://127.0.0.1:8000`. The frontend reaches these through a
-same-origin `/api/*` rewrite. `user_id` defaults to the demo user everywhere.
+same-origin `/api/*` rewrite. `user_id` defaults to the demo user everywhere
+**in local mode**.
+
+**V8.5:** when `AUTH_MODE=required`, every route outside the public allowlist
+(`/api/health*`, `/api/auth/login`, `/api/auth/register`, `/api/auth/session`)
+requires an authenticated session — a bearer token (`Authorization: Bearer …`)
+or the session cookie plus `X-CSRF-Token` on mutations. In that mode any
+`user_id` parameter is **ignored**: the namespace always comes from the
+verified session. Every response carries `X-Request-ID`, and every error uses
+a stable envelope
+`{"error": {"code", "message", "request_id"}, "detail", "request_id"}` with
+`detail` preserved for pre-V8.5 clients.
+
+## V8.5 Authentication
+
+### `POST /api/auth/register`
+`{email, password (10–256 chars), display_name}` → `201 {user}`. The first
+account becomes owner of the default workspace; later self-registrations get
+their own workspace. 404 when `AUTH_MODE=disabled`.
+
+### `POST /api/auth/login`
+`{email, password}` → `{user, token, token_type, csrf_token,
+expires_in_hours}` and sets the `HttpOnly` session cookie. Failures are
+uniform 401s (no account-existence oracle) and rate-limited per client.
+
+### `POST /api/auth/logout`
+Revokes the current session and clears the cookie.
+
+### `GET /api/auth/session`
+The authenticated principal (`user_id`, `tenant_id`, `email`, `role`,
+`namespace`, `permissions`). In local mode reports
+`{"auth_mode": "disabled", ...}` honestly.
+
+### `GET /api/auth/sessions` / `POST /api/auth/sessions/{id}/revoke`
+The caller's own session list (never tokens) and per-session revocation.
+
+## V8.5 Admin (permission-gated)
+
+### `GET /api/admin/users` · `POST /api/admin/users` (`users.manage`)
+List/create accounts in the caller's workspace. Admins cannot grant
+admin/owner roles; strict schemas reject `tenant_id`/`namespace` injection.
+
+### `POST /api/admin/users/{id}/disable` (`users.manage`)
+Disables the account and revokes all of its sessions. Cross-tenant ids → 404.
+
+### `POST /api/admin/users/{id}/role` (`roles.manage`, owner only)
+
+### `POST /api/admin/migrate-legacy-namespace` (`roles.manage`)
+Deterministic adoption of the pre-V8.5 single-user namespace by the workspace
+owner. Idempotent; a second claimant receives 409.
+
+### `GET /api/admin/security-events` (`security.read`)
+Security/audit events from the canonical EventBus (redacted payloads).
+
+### `GET /api/admin/rate-limit` (`security.read`)
+Honest limiter state: enabled flag, per-category limits, active buckets.
+
+## V8.5 Health & observability
+
+### `GET /api/health/live`
+Liveness only: `{"status": "alive"}`.
+
+### `GET /api/health/ready`
+Readiness with per-dependency truth (`ACTIVE / DEGRADED / NOT_CONFIGURED /
+BLOCKED / FAILED`) and `degraded_capabilities`. 503 when a required
+dependency failed.
+
+### `GET /api/metrics` (`health.read`)
+Request/latency/error/auth-failure/rate-limit counters. Labels are route
+templates — never cognitive content.
 
 ## System
 
