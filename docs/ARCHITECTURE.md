@@ -479,3 +479,74 @@ Archive paths and contents are bounded and treated as untrusted; imported text
 is data and is never executed as instructions. `ExplanationEngine` consumes the
 persisted manifest, validation, conflict and operation records to explain only
 what happened and why a restore was blocked or rolled back.
+
+## V8.5 — Production trust extension
+
+V8.5 keeps the one composition root and adds identity, enforcement and
+observability to it — no parallel systems:
+
+```text
+Runtime
+ ├── Database ───────────── existing cognitive tables + SCHEMA_V85
+ │                          (tenants, auth_users, auth_sessions — additive)
+ ├── Cognition ──────────── existing EventBus (now also SECURITY_V85 audit events)
+ ├── PortabilityService ─── unchanged; now runs under the authenticated principal
+ ├── IdentityService ────── users / tenants / sessions / roles / migration
+ ├── Metrics ────────────── in-process counters + latency histograms
+ └── RateLimiter ────────── sliding-window per-principal buckets
+```
+
+Enforcement is deliberately concentrated:
+
+1. `production_trust_middleware` (FastAPI) — request id, body bound, session
+   verification, CSRF, rate limits, latency metrics, safe 500s. When
+   `AUTH_MODE=disabled` it binds the single local principal and changes no
+   established behavior.
+2. `uid()` — the ONLY namespace resolver. With auth required it returns the
+   verified principal's namespace and ignores caller-supplied ids, which
+   closes IDOR at every route and every conversational tool at once (tools
+   are built server-side already bound to a namespace and expose no
+   user/tenant parameter to the model).
+3. `ensure_owner()` — ownership checks on the few routes addressed by a bare
+   object id (memory detail/update/delete, turn replay, execution trace,
+   arbitration detail). Mismatch answers 404: absence and denial are
+   indistinguishable.
+4. `require_permission()` — RBAC for admin/metrics surfaces; denials are
+   audited on the canonical bus.
+
+The identity ↔ cognition mapping is one pointer: each account owns one unique
+`namespace` value, which IS the `user_id` every cognitive table has used since
+V8. Migration from the single-user era is therefore a pointer move (the owner
+adopts the legacy namespace), never a data rewrite.
+
+Health semantics separate liveness (`/api/health/live`) from readiness
+(`/api/health/ready`). Each dependency is actively probed or reports the
+subsystem's own measured state — `ACTIVE / DEGRADED / NOT_CONFIGURED /
+BLOCKED / FAILED` — and a required-dependency failure makes readiness 503.
+Metrics and logs carry no cognitive content; log/error strings pass a
+secret-shape redaction filter.
+
+## V8.5.1 — Tool-surface narrowing on the real model path
+
+The V8.2 `CapabilityRouter` gained one method, `tool_surface(message,
+focus_kinds)`, and the agent graph consults it exactly once per turn before
+binding tools:
+
+```
+agent_node
+  └─ _advertised_tools(state, run_id, tools, trace)
+       ├─ router.tool_surface(last_human_message, live_focus_kinds)
+       │    └─ ToolSurfaceDecision {families, allowed, narrowed, reason, signals}
+       ├─ TOOL_SURFACE trace stage + routing.tool_surface bus event (once)
+       └─ narrowed tool list → model.bind_tools(...)
+tools_node                       ← unchanged: executes from the FULL registry
+```
+
+Eight capability families (memory, missions, world, learned, explanation,
+awareness, portability, research) partition the ~40 tools. Signals are
+conservative word-boundary regexes plus live conversational focus kinds; a
+signal activates a whole family, never a tool. Memory is always offered.
+No signal, more than four substantive families, a missing router or a
+router failure all fail open to the full surface. The model's own
+`tool_calls` remain the only source of TOOL_DECISION entries, and the
+deterministic fallback planner is untouched.

@@ -447,3 +447,99 @@ dry-run blockers, explicit confirmation, restore history, the structured
 portability tools, frontend typecheck/lint/build, clean extraction, and release
 ZIP contents/hash. A blocked or failed restore must never be represented as a
 successful UI operation.
+
+---
+
+## V8.5 production trust tests
+
+Six dedicated suites (`backend/tests/test_v85_*.py`, shared helpers in
+`conftest_v85.py`; every secure runtime uses `AUTH_MODE=required` with a
+lowered PBKDF2 cost for speed — the production default stays 600k):
+
+- **`test_v85_auth.py`** — password hashing round-trip and no-plaintext
+  storage, register→login→session→logout, uniform invalid-credential
+  failures (no account oracle), unauthenticated 401s, server-side expiry,
+  session revocation, fixation impossibility (fresh token per login,
+  independent revocation), hashed-only token storage, cookie flags
+  (HttpOnly/SameSite/Path), disabled-account lockout, registration
+  validation.
+- **`test_v85_authorization.py`** — least-privilege role model, member vs
+  admin surfaces (403 + audited denial), admin-to-owner escalation blocked,
+  role changes audited, cross-tenant admin actions answer 404, mass
+  assignment rejected by strict schemas, self-disable/self-demote refused.
+- **`test_v85_isolation.py`** — the multi-user proof: memories, search,
+  events, turn replay, execution traces, conversations, world state,
+  portability exports/downloads, foreign-package import rejection, restore
+  history, research sessions, explanations, skills/principles, decisions,
+  missions; direct-id IDOR, query/body `user_id` substitution, thread-id
+  collision refusal, tools bound to the principal namespace (no
+  user/tenant parameter exists in any tool schema), and direct database
+  owner-scoping checks.
+- **`test_v85_security.py`** — auth/API/portability rate limits (429,
+  Retry-After, per-principal buckets, metric + audit event), CSRF
+  (cookie mutations need the header; wrong/missing header → 403; bearer
+  exempt), oversized requests (413), malformed input, no stack
+  traces/paths in errors, no password material in login responses,
+  redaction filter, repository-wide static secret scan, `.env.example`
+  placeholder check, and the PRODUCTION configuration gate (unsafe config
+  refuses startup).
+- **`test_v85_audit_observability.py`** — security events are canonical
+  EventBus types stored in `cognitive_events` (no parallel audit store),
+  full auth lifecycle audited, audit payloads secret-free with redacted
+  emails, X-Request-ID generation/echo/propagation into error bodies,
+  metrics counters and route-template labels with zero private content,
+  liveness vs readiness semantics, dependency truth vocabulary, admin
+  security-event review, observable rate-limit state.
+- **`test_v85_migration.py`** — a real single-user database built through
+  the disabled-mode (V8.4.4 behavior) path reopens under required mode
+  with every row intact; the owner adopts the legacy namespace and sees
+  the full pre-upgrade cognitive state (including pre-upgrade exports);
+  adoption is idempotent; a second account cannot steal the namespace;
+  the schema upgrade is additive only.
+
+Browser QA: `tests/v85_browser_qa.py` (16 checks) drives the production
+build — Security and System-health panels render honest states, mobile
+390px layout, zero console errors, no hash/token leakage — and, against a
+second backend running `AUTH_MODE=required`, verifies anonymous 401,
+register/login/session/logout, and token death after logout.
+
+The regression gate is unchanged: the ENTIRE backend suite must pass in one
+run (`pytest` from `backend/`), which includes every pre-V8.5 module.
+
+## V8.5.1 tool routing tests
+
+- **`test_v851_tool_routing.py`** (40 tests, deterministic — no Ollama
+  needed) — the capability-family tool-surface narrowing layer:
+  family selection for each of the five reported real-model failure
+  messages ("What missions am I currently working on?", "Resume it.",
+  "What skills have you learned…", "Why did you use that skill…");
+  whole-family advertising so the model keeps a genuine choice; memory
+  tools always offered; fail-open on no signal, broad messages, a missing
+  router or a router error; graph binding of the narrowed surface with a
+  single consistent surface across the initial call and revisions;
+  TOOL_SURFACE honesty in activity, `execution_traces` and the
+  `routing.tool_surface` bus event; out-of-surface calls still executing
+  (narrowing advertises, never blocks); the demo/no-provider fallback
+  contract unchanged; no fabricated TOOL_DECISION; a static check
+  that the real model path gained no command dispatch; and stringified-null
+  argument normalisation AT THE ACTUAL EXECUTION BOUNDARY: run_tool_safely
+  is exercised directly with raw model dicts, proving {"open_only": "null"}
+  yields a clean TOOL_RESULT identical to a real null / omitted argument,
+  "true"/"false" strings are not coerced, invalid strings ("banana",
+  "NULL", "None", "nil", "") still fail as TOOL_FAILED with a real
+  ValidationError, the untraced standalone path is covered, and duplicate
+  detection sees normalised arguments; plus graph-handoff
+  canonicalisation — a wrapper monkeypatching run_tool_safely the way the
+  V8.4.1 legacy regression does observes None (never the string "null"),
+  the exact Windows correct_learned payload retires the focused skill, and
+  invalid strings pass through the handoff untouched for validation to
+  reject.
+
+The five real-model regression tests in `test_v831_real_model.py`,
+`test_v841_real_model.py` and `test_v842_real_model.py` are unmodified and
+unweakened; they exercise the narrowed surface end-to-end against a live
+`llama3.2:3b` and skip loudly (NOT VERIFIED) when Ollama is absent.
+
+Browser QA: `tests/v851_browser_qa.py` (12 checks) — chat surface answers a
+mission question from the real registry, the agent-activity trail renders,
+Observatory panels load, mobile 390px layout, zero console errors.

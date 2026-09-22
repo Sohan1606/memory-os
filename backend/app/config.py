@@ -77,6 +77,68 @@ class Settings:
     portability_max_records: int = int(os.getenv("PORTABILITY_MAX_RECORDS", "100000"))
     portability_max_processing_seconds: float = float(os.getenv("PORTABILITY_MAX_PROCESSING_SECONDS", "30"))
 
+    # ------------------------------------------------------------- V8.5 trust
+    # AUTH_MODE:
+    #   disabled : V8.4.4-compatible local demo. No login exists, requests run
+    #              in the single-user namespace. This is the DEFAULT so every
+    #              established behavior is preserved bit-for-bit.
+    #   required : real multi-user production mode. Every /api route outside
+    #              the public allowlist needs an authenticated session, and the
+    #              caller can never choose a namespace other than their own.
+    auth_mode: str = os.getenv("AUTH_MODE", "disabled").strip().lower()
+    # PRODUCTION=1 asserts a production deployment. Startup fails loudly if the
+    # rest of the configuration is not production-safe (see validate()).
+    production: bool = _bool("PRODUCTION", False)
+    # Session lifecycle. Tokens are 256-bit random values stored only as
+    # SHA-256 hashes; the TTL bounds both cookie and bearer use.
+    session_ttl_hours: float = float(os.getenv("SESSION_TTL_HOURS", "168"))
+    session_cookie_name: str = os.getenv("SESSION_COOKIE_NAME", "memoryos_session")
+    cookie_secure: bool = _bool("COOKIE_SECURE", _bool("PRODUCTION", False))
+    # Password hashing cost (PBKDF2-HMAC-SHA256). Tests may lower this; the
+    # default follows current OWASP guidance for PBKDF2-SHA256.
+    auth_pbkdf2_iterations: int = int(os.getenv("AUTH_PBKDF2_ITERATIONS", "600000"))
+    # Open registration. When enabled the FIRST registered account becomes the
+    # owner of the default workspace; every later account gets its own
+    # workspace (tenant) unless created by an admin inside a workspace.
+    auth_allow_registration: bool = _bool("AUTH_ALLOW_REGISTRATION", True)
+    # Optional deterministic bootstrap admin (from environment only — never
+    # from source). Both values must be provided for the account to exist.
+    auth_bootstrap_email: str | None = os.getenv("AUTH_BOOTSTRAP_EMAIL") or None
+    auth_bootstrap_password: str | None = os.getenv("AUTH_BOOTSTRAP_PASSWORD") or None
+    # Rate limiting. Defaults ON whenever authentication is required and OFF in
+    # the local demo so V8.4.4 behavior is untouched. RATE_LIMIT_ENABLED
+    # overrides in either direction.
+    rate_limit_enabled: bool = _bool(
+        "RATE_LIMIT_ENABLED",
+        os.getenv("AUTH_MODE", "disabled").strip().lower() == "required")
+    rate_limit_auth_per_minute: int = int(os.getenv("RATE_LIMIT_AUTH_PER_MINUTE", "10"))
+    rate_limit_api_per_minute: int = int(os.getenv("RATE_LIMIT_API_PER_MINUTE", "300"))
+    rate_limit_research_per_minute: int = int(os.getenv("RATE_LIMIT_RESEARCH_PER_MINUTE", "30"))
+    rate_limit_portability_per_minute: int = int(os.getenv("RATE_LIMIT_PORTABILITY_PER_MINUTE", "10"))
+    rate_limit_expensive_per_minute: int = int(os.getenv("RATE_LIMIT_EXPENSIVE_PER_MINUTE", "30"))
+    # Global request body cap (bytes). Portability keeps its own tighter caps.
+    max_request_bytes: int = int(os.getenv("MAX_REQUEST_BYTES", str(64 * 1024 * 1024)))
+    # Structured JSON logs for production log pipelines.
+    log_json: bool = _bool("LOG_JSON", False)
+
+    def validate_production(self) -> list[str]:
+        """Return the list of reasons this configuration is NOT production-safe.
+
+        Empty list == safe. Callers decide whether to raise; Runtime raises
+        when `production` is asserted so a mis-configured deployment cannot
+        start quietly.
+        """
+        problems: list[str] = []
+        if self.auth_mode != "required":
+            problems.append("AUTH_MODE must be 'required' in production.")
+        if self.cors_origins.strip() == "*":
+            problems.append("CORS_ORIGINS must list explicit origins in production.")
+        if not self.cookie_secure:
+            problems.append("COOKIE_SECURE must be enabled in production.")
+        if self.auth_pbkdf2_iterations < 100_000:
+            problems.append("AUTH_PBKDF2_ITERATIONS is below the safe minimum (100000).")
+        return problems
+
 
 settings = Settings()
 settings.data_dir.mkdir(parents=True, exist_ok=True)

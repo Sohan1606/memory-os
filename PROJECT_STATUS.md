@@ -1,12 +1,54 @@
 # PROJECT STATUS
 
-**Current milestone: MEMORY//OS V8.4.4 — Data Portability + Export + Recovery.**
+**Current milestone: MEMORY//OS V8.5.1 — Real-Model Cognitive Tool Routing Reliability (correction on V8.5 Production Trust).**
 
 Every status below was produced by a command that was actually executed. Nothing
 is aspirational. Where a capability is absent it is marked
 `OPTIONAL / NOT CONFIGURED` rather than given a false PASS.
 
 Verified on Linux, Node v20.20.2 / npm 10.8.2, Python 3.13.14.
+
+## V8.5.1 tool routing reliability status
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Capability-family tool-surface narrowing (`CapabilityRouter.tool_surface`) | **PASS** | `test_v851_tool_routing.py` → **40 passed** — the five real-model failure inputs each activate the correct family; memory always offered; fail-open on no signal / broad message / router error; stringified `"null"` tool arguments normalised at the run_tool_safely execution boundary (proven through the actual invocation path) while invalid strings still fail strict validation |
+| Model still makes the final tool choice | **PASS** | narrowed surfaces always carry whole families (`resume_mission` AND `pause_mission`); no fabricated TOOL_DECISION; static no-command-dispatch check extended to the new code |
+| Narrowing never blocks execution | **PASS** | out-of-surface model call executes genuinely (`tools_node` keeps the full registry) |
+| Honest tracing of the narrowing | **PASS** | `TOOL_SURFACE` in activity + `execution_traces` + `routing.tool_surface` on the EventBus, once per turn |
+| Demo/no-provider fallback contract | **PASS** | unchanged; verified in the same suite |
+| Real-model tests (5 Windows failures) | **PASS on Windows** (real Ollama `llama3.2:3b`, 5/5); skip loudly in this sandbox (no Ollama); assertions unweakened |
+| Full backend regression incl. V8.5 security | **PASS** | **898 passed, 22 skipped** (exit 0) |
+| Frontend typecheck / lint / prod build | **PASS** | tsc clean, eslint clean, 8/8 pages |
+| Browser QA (chat activity, Observatory, mobile) | **PASS** | `tests/v851_browser_qa.py` → 12/12, no console errors |
+
+## V8.5 production trust status
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Real authentication (register/login/logout/expiry/revocation) | **PASS** | `IdentityService` — PBKDF2-HMAC-SHA256 (600k default), 256-bit tokens stored as SHA-256 hashes, uniform failures, session rotation per login; `test_v85_auth.py` → **11 passed** |
+| Authorization (tenant/role/permission, least privilege) | **PASS** | `member`/`admin`/`owner` over an explicit permission set; no unrestricted admin; escalation and cross-tenant admin attempts rejected; `test_v85_authorization.py` → **7 passed** |
+| User/tenant isolation across every cognitive surface | **PASS** | `test_v85_isolation.py` → **16 passed** — memories, events, world, research, portability packages, restore history, explanations, skills/principles, decisions, missions, conversations, cognitive tools; direct-id (IDOR), query/body user_id substitution and thread-id reuse all blocked |
+| Session security (cookies, CSRF, fixation, hashing) | **PASS** | HttpOnly + SameSite=lax (+Secure in production) cookie, per-session CSRF token with constant-time compare, bearer path CSRF-exempt, tokens never stored raw; covered in `test_v85_auth.py` + `test_v85_security.py` |
+| Rate limiting (auth/API/research/portability/expensive) | **PASS** | Sliding-window per principal (per client for anonymous auth); 429 + `Retry-After`; violations metered and audited; `test_v85_security.py` |
+| Input hardening | **PASS** | Global body-size cap (413), strict `extra="forbid"` schemas (mass assignment → 422), malformed input → structured 422, no stack traces |
+| Secrets | **PASS** | Static secret scan over the repository as a pytest; `.env.example` placeholders only; redaction filter for logs/errors; no plaintext credentials anywhere |
+| Audit on the canonical EventBus | **PASS** | `SECURITY_V85` event family in `cognitive_events` (no parallel audit store); payloads carry redacted emails/identifiers only; `test_v85_audit_observability.py` → **12 passed** |
+| Observability | **PASS** | X-Request-ID correlation, per-route latency histograms, error/auth-failure/rate-limit counters, JSON logs (redacted); labels are route templates — no cognitive content |
+| Honest health semantics | **PASS** | `/api/health/live` (liveness only) vs `/api/health/ready` (per-dependency `ACTIVE/DEGRADED/NOT_CONFIGURED/BLOCKED/FAILED`, 503 on required-dependency failure); demo provider reports NOT_CONFIGURED, not fake health |
+| Production configuration gate | **PASS** | `PRODUCTION=1` refuses startup unless AUTH required, explicit CORS, secure cookies, sane PBKDF2 cost |
+| Deterministic V8.4.4 → V8.5 migration | **PASS** | `test_v85_migration.py` → **5 passed** — real single-user DB reopened additively, owner adopts legacy namespace with zero row rewriting, idempotent, second-account theft rejected (409) |
+| Observatory production-trust surfaces | **PASS** | `SecurityPanel` (principal, session, audit events, rate-limit state) + `SystemHealthPanel` (readiness, dependency truth, error counts, latency); no secrets or raw cognition in telemetry |
+| V8.4.4 behavior preservation | **PASS** | `AUTH_MODE=disabled` default; full pre-existing suite green unchanged |
+
+## V8.5 build and test matrix
+
+| Item | Status | Evidence |
+|---|---|---|
+| Full backend suite (V8.1→V8.5) | **PASS** | `pytest` → **858 passed, 22 skipped** (exit 0); environment-dependent Ollama skips retained |
+| V8.5 security suites alone | **PASS** | `test_v85_auth.py` 11 · `test_v85_authorization.py` 7 · `test_v85_isolation.py` 16 · `test_v85_security.py` 14 · `test_v85_audit_observability.py` 12 · `test_v85_migration.py` 5 |
+| Frontend | **PASS** | `npm ci` clean; `npm run typecheck` clean; `npm run lint` → no warnings; `npm run build` → 6/6 pages including `/observatory` with both new panels |
+| V8.5 browser QA | **PASS** | `tests/v85_browser_qa.py` → **16/16 PASS** — Security/System-health panels render honest states, mobile 390px no overflow, zero console errors, no hash/token leakage; against a live `AUTH_MODE=required` backend: 401 for anonymous, register→login→session→logout round-trip, token dead after logout |
 
 ## V8.4.4 portability status
 

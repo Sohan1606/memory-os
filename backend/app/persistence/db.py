@@ -1017,6 +1017,51 @@ CREATE INDEX IF NOT EXISTS idx_portability_operations_user
     ON portability_operations(user_id, started_at DESC);
 """
 
+# ===================== V8.5 PRODUCTION TRUST SCHEMA =====================
+# Additive only. Nothing below alters or rewrites any V8.4.4 table, so an
+# existing single-user database opens unchanged. Identity maps onto the
+# established `user_id` namespace column every cognitive table already has:
+# each account owns exactly one namespace, and the legacy single-user
+# namespace can be adopted deterministically by the bootstrap/migrated owner.
+SCHEMA_V85 = """
+CREATE TABLE IF NOT EXISTS tenants (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_users (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    status TEXT NOT NULL DEFAULT 'active',
+    namespace TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    disabled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_auth_users_tenant ON auth_users(tenant_id, status);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    csrf_token TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_reason TEXT,
+    last_seen_at TEXT,
+    client TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, expires_at);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
@@ -1067,6 +1112,7 @@ class Database:
             conn.executescript(SCHEMA_V842)
             conn.executescript(SCHEMA_V843)
             conn.executescript(SCHEMA_V844)
+            conn.executescript(SCHEMA_V85)
         self._migrate()
 
     def _migrate(self) -> None:
