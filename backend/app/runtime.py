@@ -8,6 +8,7 @@ from .agent.graph import MemoryAgent
 from .cognition.orchestrator import Cognition
 from .config import settings
 from .cognition.events import EVENT_TYPES
+from .cognition.surface import CognitiveSurface
 from .memory.seeds import SEED_MEMORIES
 from .memory.service import MemoryService
 from .memory.vector_store import VectorStore
@@ -57,6 +58,8 @@ class Runtime:
         # v8 cognitive layer. Constructed last: it introspects the runtime it
         # belongs to (SelfModel reports on provider/vectors/voice/langmem).
         self.cognition = Cognition(self.db, self.memory, self)
+        self.surface = CognitiveSurface(
+            self.cognition.bus, self, self.cognition.surface_lifecycle)
         # V8.4.4 extends the same persistence and EventBus with a user-owned
         # package lifecycle. The service is attached to cognition so the agent
         # tools and ExplanationEngine share one composition root.
@@ -166,6 +169,7 @@ class Runtime:
                 "autonomy": self.cognition.autonomy.level(self.settings.demo_user_id),
                 "extraction": self.cognition.extractor.status(),
                 "perception": self.cognition.perception.capabilities(),
+                "semantic_extraction": self.cognition.meaning.model_compiler.status(),
             },
             # v8.2: capability truth and how each task would actually execute.
             "capabilities": self.cognition.router.report().as_dict(),
@@ -173,10 +177,15 @@ class Runtime:
             # `version` is the established V8.2 API-contract marker retained for
             # backwards compatibility; `release` identifies the running slice.
             "version": "8.2",
-            "release": "8.5",
+            "release": "9.0.1",
+            "semantic": {
+                "schema": "9.0",
+                "object_types": 26,
+                "personal_state_versioned": True,
+            },
             "portability": {
                 "format": "memory-os-export",
-                "schema": "8.4.4",
+                "schema": "9.0",
                 "limits": self.portability.limits,
             },
             # V8.5 production-trust surfaces. `security` never contains

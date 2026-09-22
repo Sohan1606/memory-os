@@ -1,6 +1,22 @@
 # MEMORY//OS
 
-**MEMORY//OS V8.5 — Production Trust + Auth + Privacy + Multi-User + Observability.**
+**MEMORY//OS V9 — Conversation-first personal cognitive operating system.**
+
+MEMORY//OS is one continuously aware personal cognitive environment. Speak or
+type naturally; the system compiles meaning into typed cognitive objects,
+preserves uncertainty and provenance, maintains reconstructable personal
+state, invokes the relevant existing cognitive capability, and returns a
+backend-driven surface showing only the work that actually occurred.
+
+**The surface follows the thought.** The normal experience is one conversation,
+not a dashboard of internal modules. Advanced inspection remains available in
+Observatory. Text and supported browser voice input use the same semantic and
+cognitive pipeline; unavailable voice/model/connectors degrade honestly.
+
+V9 extends rather than replaces V8.5.1. Existing memory, missions, world model,
+prediction, causality, research, explanation, attention, autonomy, learning,
+security and portability systems remain authoritative. See
+[`docs/V9-ARCHITECTURE.md`](docs/V9-ARCHITECTURE.md).
 
 A continuously maintained personal cognitive environment, operated through
 conversation. It remembers, learns evidence-backed Skills from meaningful
@@ -42,6 +58,36 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## New in V9.0.1
+
+- **Live Cognitive Surface:** the frontend starts a correlation-scoped turn and
+  polls persisted `surface.activity` EventBus records while cognition runs.
+  `ACTIVE`, `COMPLETED`, `DEGRADED`, and `FAILED` are emitted only around real
+  backend work; the completed surface is built from the same lifecycle.
+- **Local model-assisted semantics:** a configured Ollama model may propose a
+  semantic representation through the existing provider/capability stack.
+  Strict Pydantic and semantic policy validation run before the Meaning Kernel;
+  invalid, busy, timed-out, unavailable, or ungrounded output falls back to the
+  deterministic compiler and never writes state directly.
+- Model interpretations retain `MODEL_HYPOTHESIS`, confidence is capped, and
+  persistence significance remains deterministic policy—not model authority.
+- Nuanced uncertainty, negation, temporal scope, undecided state and focused
+  correction language have expanded deterministic coverage.
+
+## New in V9
+
+- canonical Meaning Kernel with deterministic schema validation;
+- 26 semantically distinct cognitive object types;
+- explicit modality, confidence, temporal scope, evidence and provenance;
+- persisted, auditable semantic relationships;
+- immutable personal-state versions, historical reconstruction and exact diff;
+- relevance-ranked semantic state in the existing Context Fabric;
+- backend Cognitive Surface Protocol rendered by the conversation workspace;
+- one text/voice conversation pipeline with honest browser fallback;
+- V9 semantic-state export/import through existing portability;
+- tenant/user isolation through the existing V8.5 authorization boundary;
+- semantic-state inspection in Observatory without chain-of-thought.
 
 ## New in V8.5.1
 

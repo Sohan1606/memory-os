@@ -10,6 +10,9 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     thread_id: str = Field(default="thread-main", min_length=1, max_length=100)
     user_id: str | None = Field(default=None, max_length=100)
+    interaction_mode: str = Field(default="text", pattern="^(text|voice)$")
+    correlation_id: str | None = Field(
+        default=None, min_length=8, max_length=100, pattern=r"^turn_[A-Za-z0-9_-]+$")
 
     @field_validator("message")
     @classmethod
@@ -17,6 +20,11 @@ class ChatRequest(BaseModel):
         if not v.strip():
             raise ValueError("message must not be blank")
         return v.strip()
+
+
+class SurfaceTurnRequest(BaseModel):
+    thread_id: str = Field(default="thread-main", min_length=1, max_length=100)
+    user_id: str | None = Field(default=None, max_length=100)
 
 
 class ChatResponse(BaseModel):
@@ -29,6 +37,7 @@ class ChatResponse(BaseModel):
     # cognitive loop failed; the conversation still succeeds either way.
     correlation_id: str | None = None
     cognition: dict[str, Any] | None = None
+    surface: dict[str, Any] | None = None
 
 
 class MemoryCreateRequest(BaseModel):

@@ -1,5 +1,9 @@
 # MEMORY//OS — Architecture
 
+> V9 adds the Meaning Kernel, versioned Personal State and backend Cognitive
+> Surface Protocol while retaining this V8 architecture. See
+> [V9-ARCHITECTURE.md](V9-ARCHITECTURE.md) for the current conversational flow.
+
 ## 1. Overview
 
 MEMORY//OS is a local-first AI agent with persistent long-term memory. It has two

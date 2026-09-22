@@ -39,6 +39,9 @@ from .events import EventBus
 from .focus import FocusTracker
 from .user_control import CognitiveController
 from .explanation import ExplanationEngine
+from .meaning import MeaningKernel
+from .personal_state import PersonalStateService
+from .surface import SurfaceLifecycle
 
 log = logging.getLogger(__name__)
 from .influence import InfluenceLedger
@@ -159,6 +162,15 @@ class Cognition:
         # ---------------------------------------------------- v8.4.2 additions
         # Advanced explanation engine: auditable explanation graphs and snapshots.
         self.explanation_engine = ExplanationEngine(db, self.bus, self)
+        # ---------------------------------------------------------- v9 core
+        # Meaning and personal state extend this same composition root, DB,
+        # focus tracker and canonical EventBus; there is no parallel runtime.
+        self.personal_state = PersonalStateService(db, self.bus)
+        self.surface_lifecycle = SurfaceLifecycle(self.bus)
+        self.meaning = MeaningKernel(
+            db, self.bus, self.personal_state, self.focus,
+            provider=runtime.provider, capability_router=self.router,
+            model_lock=getattr(runtime, "llm_lock", None))
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,
@@ -178,6 +190,29 @@ class Cognition:
         self.bus.emit(user_id, "conversation.message", message[:200],
                       subject_kind="conversation", subject_id=conversation_id or "-",
                       correlation_id=cid)
+
+        # --- v9.0.1 live surface: transitions are canonical EventBus records,
+        # emitted only around work that really executes.
+        thread = conversation_id or "default"
+        self.surface_lifecycle.transition(user_id, thread, cid, "UNDERSTANDING", "ACTIVE")
+        try:
+            meaning = self.meaning.process(
+                user_id, message, source="conversation", thread_id=conversation_id,
+                correlation_id=cid, persist=True)
+        except Exception as exc:
+            self.surface_lifecycle.transition(
+                user_id, thread, cid, "UNDERSTANDING", "FAILED",
+                detail=f"Meaning compilation failed: {type(exc).__name__}")
+            raise
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "UNDERSTANDING", "COMPLETED",
+            source_kind="meaning_compilation", source_id=meaning["compilation_id"])
+        if meaning["semantic"].get("ambiguous"):
+            self.surface_lifecycle.transition(
+                user_id, thread, cid, "IDENTIFYING_UNKNOWNS", "ACTIVE")
+            self.surface_lifecycle.transition(
+                user_id, thread, cid, "IDENTIFYING_UNKNOWNS", "COMPLETED",
+                source_kind="meaning_compilation", source_id=meaning["compilation_id"])
 
         # --- v8.2: how will this turn actually execute? ---------------------
         route = self.router.route("memory_retrieval")
@@ -219,7 +254,17 @@ class Cognition:
         intent_report = self.intent_evolution.observe(user_id, message,
                                                       correlation_id=cid)
         intent = intent_report.get("current_intent")
-        entities = self.world.observe(user_id, message, correlation_id=cid)
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "CHECKING_WORLD_STATE", "ACTIVE")
+        try:
+            entities = self.world.observe(user_id, message, correlation_id=cid)
+            self.surface_lifecycle.transition(
+                user_id, thread, cid, "CHECKING_WORLD_STATE", "COMPLETED")
+        except Exception as exc:
+            self.surface_lifecycle.transition(
+                user_id, thread, cid, "CHECKING_WORLD_STATE", "FAILED",
+                detail=f"World check failed: {type(exc).__name__}")
+            raise
 
         extraction = self.extractor.extract(message)
         understanding = "deterministic"
@@ -255,7 +300,12 @@ class Cognition:
                 except ValueError:
                     continue
 
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "CHECKING_MEMORY", "ACTIVE")
         retrieved = self._retrieve(user_id, message, cid)
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "CHECKING_MEMORY",
+            "DEGRADED" if retrieved["degraded"] else "COMPLETED")
 
         # --- v8.2 arbitration: evidence-weighted, persisted, explainable -----
         arbitration = None
@@ -303,9 +353,14 @@ class Cognition:
         continuity_items = self.continuity.relevant_to(user_id, message)
 
         # --- v8.2/v8.4.1 canonical context assembly --------------------------
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "CHECKING_PERSONAL_CONTEXT", "ACTIVE")
         context_bundle = self.context.build(
             user_id, message, retrieved=retrieved["candidates"], learned=learned,
             thread_id=conversation_id, correlation_id=cid)
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "CHECKING_PERSONAL_CONTEXT",
+            "DEGRADED" if context_bundle.degraded else "COMPLETED")
         self.bus.emit(
             user_id,
             "context.degraded" if context_bundle.degraded else (
@@ -362,8 +417,12 @@ class Cognition:
                 except (KeyError, ValueError) as exc:
                     log.info("Could not record %s influence: %s", section, exc)
 
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "EVALUATING_CONSEQUENCES", "ACTIVE")
         predictions = self.predictions.assess_world(user_id, self.world,
                                                     correlation_id=cid)
+        self.surface_lifecycle.transition(
+            user_id, thread, cid, "EVALUATING_CONSEQUENCES", "COMPLETED")
 
         # Attention: is anything worth raising unprompted right now?
         attention = None
@@ -386,6 +445,7 @@ class Cognition:
 
         return {
             "correlation_id": cid,
+            "meaning": meaning,
             "need": need,
             "intent": intent,
             "world_entities": entities,

@@ -21,7 +21,8 @@ import type {
   ResearchFetchResult, PortabilityExport, PortabilityImport, PortabilityPlan,
   RestoreConflict, RestoreOperation,
   AuthSessionResponse, ReadinessReport, MetricsSnapshot, SecurityEvent,
-  RateLimitState,
+  RateLimitState, CognitiveObject, PersonalState, MeaningCompilation,
+  LiveSurfaceState,
 } from "./types";
 
 export class ApiError extends Error {
@@ -57,11 +58,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<Health>("/api/health"),
 
-  chat: (message: string, threadId: string) =>
+  startSurfaceTurn: (threadId: string) =>
+    request<LiveSurfaceState>("/api/v9/surface/turns", {
+      method: "POST", body: JSON.stringify({ thread_id: threadId }),
+    }),
+  surfaceTurn: (correlationId: string) =>
+    request<LiveSurfaceState>(`/api/v9/surface/turns/${encodeURIComponent(correlationId)}`),
+  chat: (message: string, threadId: string, interactionMode: "text" | "voice" = "text",
+         correlationId?: string) =>
     request<ChatResponse>("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ message, thread_id: threadId }),
+      body: JSON.stringify({ message, thread_id: threadId,
+                             interaction_mode: interactionMode,
+                             correlation_id: correlationId }),
     }),
+
+  personalState: () => request<PersonalState>("/api/v9/personal-state"),
+  cognitiveObjects: () => request<{ objects: CognitiveObject[] }>("/api/v9/cognitive-objects"),
+  meaningCompilations: () => request<{ compilations: MeaningCompilation[] }>(
+    "/api/v9/meaning/compilations"),
 
   conversations: () =>
     request<{ id: string; title: string; created_at: string; updated_at: string }[]>(
