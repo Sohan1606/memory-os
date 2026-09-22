@@ -11,9 +11,9 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from ..providers.capabilities import STRUCTURED_OUTPUT
 
@@ -172,13 +172,82 @@ class MeaningCompiler:
         return TemporalScope(expression=expression, kind=kind)
 
     @staticmethod
-    def validate_model_output(payload: str | dict[str, Any]) -> SemanticRepresentation:
-        """Validate model-produced semantics. Invalid output fails closed."""
+    def _normalize_model_payload(payload: Any) -> str | dict[str, Any]:
+        """Unwrap only documented, unambiguous serialization containers.
+
+        This deliberately is not a "find JSON" extractor: prose around JSON,
+        multiple content blocks, unknown block types and incomplete fences all
+        remain invalid and fail closed at the schema boundary.
+        """
+        if isinstance(payload, SemanticRepresentation):
+            return payload.model_dump(mode="json")
+        # BaseMessage also has model_dump(); content is the documented model
+        # payload and must win over message metadata.
+        if hasattr(payload, "content") and not isinstance(payload, (str, dict, list)):
+            return MeaningCompiler._normalize_model_payload(payload.content)
+        if hasattr(payload, "model_dump") and not isinstance(payload, dict):
+            return payload.model_dump(mode="json")
+        if isinstance(payload, dict):
+            # langchain-ollama include_raw=True contract.
+            if {"raw", "parsed", "parsing_error"}.issubset(payload):
+                if payload["parsed"] is not None and payload["parsing_error"] is None:
+                    return MeaningCompiler._normalize_model_payload(payload["parsed"])
+                if payload["raw"] is not None:
+                    return MeaningCompiler._normalize_model_payload(payload["raw"])
+                raise ValueError("Structured model response contained no parseable payload.")
+            return payload
+        if isinstance(payload, list):
+            if len(payload) != 1 or not isinstance(payload[0], dict):
+                raise ValueError("Model content must contain exactly one structured block.")
+            block = payload[0]
+            if set(block) == {"type", "text"} and block["type"] == "text":
+                return MeaningCompiler._normalize_model_payload(block["text"])
+            if set(block) == {"type", "json"} and block["type"] == "json" and isinstance(block["json"], dict):
+                return block["json"]
+            raise ValueError("Unsupported model content block.")
+        if isinstance(payload, str):
+            text = payload.strip()
+            if not text:
+                raise ValueError("Model semantic response was empty.")
+            if text.startswith("```"):
+                lines = text.splitlines()
+                if len(lines) < 3 or lines[0].strip().lower() not in {"```", "```json"} or lines[-1].strip() != "```":
+                    raise ValueError("Malformed or unsupported JSON fence.")
+                inner = "\n".join(lines[1:-1]).strip()
+                if not inner or "```" in inner:
+                    raise ValueError("Malformed or ambiguous JSON fence.")
+                return inner
+            return text
+        raise ValueError(f"Unsupported model payload type: {type(payload).__name__}.")
+
+    @staticmethod
+    def validate_model_output(payload: Any) -> SemanticRepresentation:
+        """Normalize narrowly, then validate model semantics. Fail closed."""
         try:
-            data = json.loads(payload) if isinstance(payload, str) else payload
+            normalized = MeaningCompiler._normalize_model_payload(payload)
+            data = json.loads(normalized) if isinstance(normalized, str) else normalized
             return SemanticRepresentation.model_validate(data)
-        except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+        except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+            if isinstance(exc, ValueError) and str(exc).startswith("Invalid semantic extraction:"):
+                raise
             raise ValueError(f"Invalid semantic extraction: {exc}") from exc
+
+
+class _ModelSemanticCandidate(SemanticCandidate):
+    """Generation schema; canonical validation still runs after parsing."""
+
+    confidence: float = Field(ge=0.0, le=0.85)
+    provenance: Literal[Provenance.MODEL_HYPOTHESIS]
+    source: Literal["local_model"]
+    material: Literal[False] = False
+
+
+class _ModelSemanticRepresentation(SemanticRepresentation):
+    """Ollama JSON schema narrowed to model authority and policy limits."""
+
+    source: Literal["local_model"]
+    candidates: list[_ModelSemanticCandidate] = Field(min_length=1, max_length=3)
+    compiler: Literal["model-assisted"] = "model-assisted"
 
 
 _MODEL_SCHEMA = """Return ONLY one JSON object matching this contract:
@@ -202,9 +271,15 @@ _MODEL_SCHEMA = """Return ONLY one JSON object matching this contract:
   "ambiguity_reason": string|null,
   "compiler": "model-assisted"
 }
-Preserve uncertainty and negation. A question is QUESTION, not a goal. A model
-interpretation is always MODEL_HYPOTHESIS, never FACT merely because it sounds
-plausible. Use at most three candidates. Output JSON only.""" % (
+Preserve uncertainty and negation. A question is QUESTION, not a goal. For
+"might", use HYPOTHESIS with POSSIBLE modality. A model interpretation is always
+MODEL_HYPOTHESIS, never FACT merely because it sounds plausible. Include an
+explicit temporal_scope for every candidate; phrases such as "next year" are
+FUTURE. Use at most three candidates.
+
+RETURN ONLY THE REQUIRED STRUCTURED REPRESENTATION. Do not return prose,
+markdown, an explanation, or reasoning. You only propose semantic candidates.
+You do not write state.""" % (
     [v.value for v in CognitiveType], [v.value for v in Modality])
 
 
@@ -220,7 +295,7 @@ class ModelMeaningCompiler:
         if self.provider is None or self.capability_router is None:
             return {"state": "NOT_CONFIGURED", "detail": "No model provider is wired."}
         status = self.provider.status()
-        # V9.0.1 does not initiate paid external semantic calls. The existing
+        # V9.0.2 does not initiate paid external semantic calls. The existing
         # agent provider remains untouched; semantic assistance is local Ollama.
         if status.name != "ollama":
             return {"state": "NOT_CONFIGURED",
@@ -244,11 +319,26 @@ class ModelMeaningCompiler:
             return None, "DEGRADED: model busy; deterministic compiler used."
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
-            response = self.provider.chat_model().invoke([
-                SystemMessage(content="You classify semantic meaning. Return strict JSON only."),
-                HumanMessage(content=f"{_MODEL_SCHEMA}\n\nUser text:\n{text}")])
-            raw = response.content if isinstance(response.content, str) else str(response.content)
-            proposal = MeaningCompiler.validate_model_output(raw)
+            messages = [
+                SystemMessage(content=(
+                    "You propose semantic candidates. RETURN ONLY THE REQUIRED "
+                    "STRUCTURED REPRESENTATION. Do not explain or reason.")),
+                HumanMessage(content=f"{_MODEL_SCHEMA}\n\nUser text:\n{text}")]
+            model = self.provider.chat_model()
+            structured_factory = getattr(model, "with_structured_output", None)
+            if callable(structured_factory):
+                try:
+                    structured = structured_factory(
+                        _ModelSemanticRepresentation,
+                        method="json_schema", include_raw=True)
+                except (AttributeError, NotImplementedError, TypeError):
+                    # Older compatible providers can still use the narrowly
+                    # normalized plain response path below.
+                    structured = None
+                response = structured.invoke(messages) if structured is not None else model.invoke(messages)
+            else:
+                response = model.invoke(messages)
+            proposal = MeaningCompiler.validate_model_output(response)
             self._validate_policy(proposal, text)
             # Persistence significance is never delegated to the model. It may
             # improve turn interpretation only where deterministic policy had
@@ -272,11 +362,19 @@ class ModelMeaningCompiler:
     def _validate_policy(proposal: SemanticRepresentation, text: str) -> None:
         if proposal.input_text.strip() != text.strip():
             raise ValueError("Model semantic input_text did not match the authorized utterance.")
+        if proposal.source != "local_model":
+            raise ValueError("Model semantic source must be local_model.")
+        if not proposal.candidates:
+            raise ValueError("Model proposed no semantic candidates.")
         if len(proposal.candidates) > 3:
             raise ValueError("Model proposed too many semantic candidates.")
         for candidate in proposal.candidates:
+            if "temporal_scope" not in candidate.model_fields_set:
+                raise ValueError("Model candidates must include explicit temporal scope.")
             if candidate.provenance != Provenance.MODEL_HYPOTHESIS:
                 raise ValueError("Model candidates must retain MODEL_HYPOTHESIS provenance.")
+            if candidate.source != "local_model":
+                raise ValueError("Model candidate source must be local_model.")
             if candidate.type == CognitiveType.FACT:
                 raise ValueError("A model hypothesis cannot be promoted directly to FACT.")
             if candidate.confidence > .85:

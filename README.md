@@ -59,6 +59,19 @@ Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
 
+## New in V9.0.2
+
+- **Native Ollama structured semantics:** the existing local provider now uses
+  `with_structured_output(..., method="json_schema")` when supported, with the
+  canonical `SemanticRepresentation` as its schema.
+- **Narrow response normalization:** complete JSON, complete `json` fences, and
+  single documented text/JSON content blocks are accepted before strict schema
+  validation. Prose-wrapped, multi-block, empty, malformed, or unknown forms
+  fail closed to deterministic semantics.
+- The Meaning Kernel remains authoritative: model proposals still require exact
+  utterance grounding, `MODEL_HYPOTHESIS`, explicit temporal scope, confidence
+  at or below `0.85`, no `FACT`, and deterministic persistence policy.
+
 ## New in V9.0.1
 
 - **Live Cognitive Surface:** the frontend starts a correlation-scoped turn and

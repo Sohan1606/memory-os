@@ -1,6 +1,19 @@
 # PROJECT STATUS
 
-**Current milestone: MEMORY//OS V9.0.1 — Live Cognitive Surface + Semantic Extraction Hardening.**
+**Current milestone: MEMORY//OS V9.0.2 — Real Ollama Semantic Extraction Hardening.**
+
+## V9.0.2 verification status (2026-09-22)
+
+| Gate | Status | Executed evidence |
+|---|---|---|
+| Deterministic semantic verification | **PASS** | strict fallback and nuanced semantic tests |
+| Simulated model boundary verification | **PASS** | clean/fenced JSON, documented content blocks, native structured-output wrapper, malformed/unsafe matrix |
+| Focused V9/V9.0.1/V9.0.2 | **PASS** | **66 passed, 1 skipped** |
+| Full backend | **PASS** | **964 passed, 23 skipped** |
+| Frontend typecheck / lint / build | **PASS** | clean typecheck and lint; production build 8/8 pages |
+| Browser regression | **PASS** | V9 **16/16**; V8.5.1 **12/12** |
+| Security and portability | **PASS** | full regression suite, including V9 scoped security and portability tests |
+| Real Ollama `llama3.2:3b` | **NOT VERIFIED in release workspace** | Ollama 0.34.2 and the real model were installed and reached, but the 1.9 GiB sandbox could not load the 2.0 GiB model (`llama-server ... signal: killed`). No model PASS is claimed. |
 
 ## V9.0.1 verification status (2026-09-22)
 
