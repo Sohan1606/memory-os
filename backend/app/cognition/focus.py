@@ -27,7 +27,7 @@ from typing import Any
 KINDS = ("memory", "experience", "skill", "principle", "decision",
          "prediction", "world", "intent", "policy", "arbitration",
          "influence", "continuity", "mission", "goal", "project", "person",
-         "simulation", "observation")
+         "simulation", "observation", "cognitive_object")
 
 # Natural phrasings that refer to a currently-inspected object.
 _REFERENCE = re.compile(

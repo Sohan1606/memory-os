@@ -31,7 +31,7 @@ EXCLUDED_SUFFIXES = {
     ".swp", ".swo", ".bak", ".orig", ".rej", ".pem", ".key", ".crt", ".p12",
     ".pfx", ".onnx", ".bin", ".pt", ".pth", ".safetensors", ".gguf", ".ckpt",
     ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".png", ".jpg", ".jpeg",
-    ".webm", ".mp4", ".mov",
+    ".webm", ".mp4", ".mov", ".tsbuildinfo",
 }
 
 # Runtime data directories: databases, vector stores and their WAL/SHM

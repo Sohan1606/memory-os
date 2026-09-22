@@ -1,4 +1,8 @@
-# Cognitive architecture (v8)
+# Cognitive architecture (v8 → v9)
+
+V9 adds a validated Meaning Kernel, versioned Personal State and a safe
+backend-driven Cognitive Surface while reusing the V8 systems below. See
+[V9-ARCHITECTURE.md](V9-ARCHITECTURE.md).
 
 The v8 layer sits on top of the v7 memory system. It does not replace it: the
 agent, memory service, vector store and providers are unchanged. What v8 adds is

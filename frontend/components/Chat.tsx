@@ -6,9 +6,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import CognitiveSurface from "@/components/CognitiveSurface";
 import { useMemoryStore } from "@/hooks/useMemoryStore";
+import { useSpeech } from "@/hooks/useSpeech";
 import { api, ApiError } from "@/lib/api";
-import type { ChatActivity, RetrievalResult, TurnCognition } from "@/lib/types";
+import type { ChatActivity, CognitiveSurfaceState, LiveSurfaceState,
+                    RetrievalResult, TurnCognition } from "@/lib/types";
 
 interface Turn {
   role: "user" | "assistant";
@@ -16,6 +19,7 @@ interface Turn {
   recalled?: RetrievalResult[];
   activity?: ChatActivity[];
   cognition?: TurnCognition | null;
+  surface?: CognitiveSurfaceState | null;
 }
 
 const ACTIVITY_LABEL: Record<string, string> = {
@@ -64,6 +68,9 @@ export default function Chat({ threadId }: { threadId: string }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inputMode, setInputMode] = useState<"text" | "voice">("text");
+  const [liveSurface, setLiveSurface] = useState<LiveSurfaceState | null>(null);
+  const speech = useSpeech();
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,6 +88,9 @@ export default function Chat({ threadId }: { threadId: string }) {
   }, [threadId]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [turns]);
+  useEffect(() => {
+    if (speech.transcript) setInput(speech.transcript);
+  }, [speech.transcript]);
 
   const send = useCallback(async () => {
     const message = input.trim();
@@ -89,20 +99,38 @@ export default function Chat({ threadId }: { threadId: string }) {
     setError(null);
     setTurns((t) => [...t, { role: "user", content: message }]);
     setBusy(true);
+    let poll: ReturnType<typeof setInterval> | null = null;
     try {
-      const res = await api.chat(message, threadId);
+      const mode = inputMode;
+      const started = await api.startSurfaceTurn(threadId);
+      setLiveSurface(started);
+      poll = setInterval(() => {
+        void api.surfaceTurn(started.conversation.correlation_id)
+          .then(setLiveSurface)
+          .catch(() => { /* final chat response remains authoritative */ });
+      }, 180);
+      const res = await api.chat(
+        message, threadId, mode, started.conversation.correlation_id);
       setTurns((t) => [...t, {
         role: "assistant", content: res.answer,
         recalled: res.recalled, activity: res.activity,
-        cognition: res.cognition,
+        cognition: res.cognition, surface: res.surface,
       }]);
+      if (mode === "voice" && typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(res.answer));
+      }
+      setInputMode("text");
+      speech.reset();
       await refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "The agent could not respond.");
     } finally {
+      if (poll) clearInterval(poll);
+      setLiveSurface(null);
       setBusy(false);
     }
-  }, [input, busy, threadId, refresh]);
+  }, [input, busy, threadId, refresh, inputMode, speech]);
 
   const provider = health?.provider;
 
@@ -178,6 +206,12 @@ export default function Chat({ threadId }: { threadId: string }) {
               </details>
             )}
 
+            {t.surface && (
+              <div className="panel" style={{ marginTop: "0.7rem", padding: "0.9rem" }}>
+                <CognitiveSurface surface={t.surface} />
+              </div>
+            )}
+
             {t.cognition && <Understanding cognition={t.cognition} />}
 
             {t.activity && t.activity.length > 0 && (
@@ -196,7 +230,12 @@ export default function Chat({ threadId }: { threadId: string }) {
           </article>
         ))}
 
-        {busy && <p className="label label-accent">Agent processing…</p>}
+        {liveSurface && (
+          <div className="panel" style={{ padding: "0.9rem", maxWidth: 640 }}>
+            <CognitiveSurface surface={liveSurface} live />
+          </div>
+        )}
+        {busy && !liveSurface && <p className="label label-accent">Starting cognitive turn…</p>}
         {error && <p className="body" style={{ color: "#ff8a7a" }}>{error}</p>}
         <div ref={endRef} />
       </div>
@@ -205,13 +244,28 @@ export default function Chat({ threadId }: { threadId: string }) {
             style={{ display: "flex", gap: "0.6rem", marginTop: "1.2rem", flexWrap: "wrap" }}>
         <label htmlFor="chat-input" className="sr-only">Message the agent</label>
         <input id="chat-input" className="field" value={input} disabled={busy}
-               onChange={(e) => setInput(e.target.value)}
-               placeholder="Tell the agent something worth remembering…"
+               onChange={(e) => { setInput(e.target.value); setInputMode("text"); }}
+               placeholder="Speak or type naturally…"
                style={{ flex: "1 1 240px" }} />
+        {speech.supported ? (
+          <button className="btn" type="button" disabled={busy}
+                  aria-pressed={speech.listening}
+                  onClick={() => {
+                    setInputMode("voice");
+                    if (speech.listening) speech.stop(); else speech.start();
+                  }}>
+            {speech.listening ? "Stop listening" : "Microphone"}
+          </button>
+        ) : (
+          <span className="chip" title="Browser speech recognition is unavailable; text uses the same cognitive pipeline.">
+            MIC NOT AVAILABLE
+          </span>
+        )}
         <button className="btn btn-primary" type="submit" disabled={busy || !input.trim()}
                 data-cursor="cta">
           Send
         </button>
+        {speech.error && <p className="body" style={{ flexBasis: "100%", color: "#ff8a7a", margin: 0 }}>{speech.error}</p>}
       </form>
     </div>
   );

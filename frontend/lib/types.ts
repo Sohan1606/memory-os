@@ -69,6 +69,68 @@ export interface GraphData {
 
 export interface ChatActivity { type: string; [k: string]: unknown }
 
+export interface CognitiveObject {
+  id: string;
+  type: string;
+  content: string;
+  modality: string;
+  confidence: number;
+  provenance: string;
+  source: string;
+  status: string;
+  object_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalState {
+  version: number;
+  reason: string;
+  created_at?: string;
+  snapshot: { objects: CognitiveObject[]; relationships: Record<string, unknown>[] };
+}
+
+export interface MeaningCompilation {
+  id: string;
+  status: string;
+  compiler: string;
+  created_at: string;
+  semantic: { candidates: { type: string; modality: string; confidence: number }[]; ambiguous: boolean };
+}
+
+export interface CognitiveSurfaceActivity {
+  stage: string;
+  status: "ACTIVE" | "COMPLETED" | "DEGRADED" | "FAILED";
+  source: { kind: string; id: string };
+  timestamp: string;
+  event_id?: number;
+  detail?: string;
+}
+
+export interface LiveSurfaceState {
+  schema_version: string;
+  conversation: { thread_id: string; correlation_id: string };
+  status: "ACTIVE" | "COMPLETED" | "FAILED";
+  cognitive_stage: string;
+  activities: CognitiveSurfaceActivity[];
+  history: CognitiveSurfaceActivity[];
+  updated_at: string;
+}
+
+export interface CognitiveSurfaceState {
+  schema_version: string;
+  conversation: { thread_id: string; correlation_id: string };
+  system_state: { status: string; provider: string; timestamp: string };
+  cognitive_stage: string;
+  activities: CognitiveSurfaceActivity[];
+  active_objects: { kind: string; id: string; type: string }[];
+  relevant_evidence: { kind: string; id?: string; content?: string; confidence?: number; source: string }[];
+  visible_insights: { kind: string; value: string; confidence?: number; source_ref?: string }[];
+  uncertainties: { kind: string; detail: string; source_ref?: string }[];
+  next_interaction: { kind: string; prompt: string | null };
+  timestamp: string;
+}
+
 export interface ChatResponse {
   answer: string;
   provider: string;
@@ -77,6 +139,7 @@ export interface ChatResponse {
   thread_id: string;
   correlation_id: string | null;
   cognition: TurnCognition | null;
+  surface: CognitiveSurfaceState | null;
 }
 
 export interface Health {

@@ -26,16 +26,17 @@ log = logging.getLogger(__name__)
 
 PACKAGE_FORMAT = "memory-os-export"
 PACKAGE_FORMAT_VERSION = 1
-SCHEMA_VERSION = "8.4.4"
+SCHEMA_VERSION = "9.0"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({
     "8.1", "8.2", "8.3", "8.3.1", "8.4.1", "8.4.2", "8.4.3", "8.4.4",
+    "8.5", "9.0",
 })
 
 DOMAINS = (
     "memories", "events", "world", "user_model", "intents", "needs",
     "experiences", "skills", "principles", "causality", "predictions",
     "decisions", "commitments", "plans", "goals", "research",
-    "explanations", "conversations", "configuration",
+    "explanations", "conversations", "configuration", "semantic_state",
 )
 
 # Table names come from the existing persistence schema. Keeping this allowlist
@@ -56,6 +57,8 @@ TABLES = (
     "knowledge_transitions", "explanation_snapshots", "research_sessions_v2",
     "research_sources", "research_fetches", "research_evidence",
     "research_claims", "research_conflicts", "research_world_updates",
+    "meaning_compilations", "cognitive_objects", "cognitive_object_versions",
+    "cognitive_relationships", "personal_state_versions",
 )
 
 TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -90,6 +93,11 @@ TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
     "research_fetches": ("research",), "research_evidence": ("research",),
     "research_claims": ("research",), "research_conflicts": ("research",),
     "research_world_updates": ("research", "world"),
+    "meaning_compilations": ("semantic_state", "events"),
+    "cognitive_objects": ("semantic_state", "user_model"),
+    "cognitive_object_versions": ("semantic_state", "events"),
+    "cognitive_relationships": ("semantic_state", "causality"),
+    "personal_state_versions": ("semantic_state", "user_model", "events"),
 }
 
 # A small explicit dependency graph. A request for a high-level object brings
@@ -108,6 +116,7 @@ DEPENDENCIES: dict[str, tuple[str, ...]] = {
     "predictions": ("causality", "events"),
     "decisions": ("causality", "events"),
     "causality": ("events",),
+    "semantic_state": ("events",),
 }
 
 SENSITIVE_KEY = re.compile(

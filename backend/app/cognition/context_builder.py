@@ -131,6 +131,7 @@ class ContextBundle:
             # act. Naming the object up front is what makes direct action
             # selection possible.
             "focus": "IN FOCUS RIGHT NOW (what 'it'/'that' refers to)",
+            "semantic": "Relevant personal semantic state (type, modality and provenance preserved)",
             # Missions next: a tracked objective is the strongest available
             # context, and it outranks a semantically similar memory (§4).
             "mission": "Active missions (tracked objectives, not memories)",
@@ -210,6 +211,9 @@ class ContextBuilder:
             # follow-up resolve to, and stating it plainly removes the need for
             # a read-before-write tool call.
             ("focus", lambda: self._focus(user_id, thread_id)),
+            # V9 semantic personal state is relevance-ranked and bounded like
+            # every other source; it is never dumped wholesale into the prompt.
+            ("semantic", lambda: self._semantic_state(user_id, message)),
             # v8.3.1 §4: missions lead. An active objective is the strongest
             # context there is for "what am I doing", and it must be present
             # whether or not any memory happens to be semantically similar.
@@ -273,6 +277,35 @@ class ContextBuilder:
         return bundle
 
     # --------------------------------------------------------------- sections
+    def _semantic_state(self, user_id: str, message: str) -> list[ContextItem]:
+        service = getattr(self.cog, "personal_state", None)
+        if service is None:
+            return []
+        query = _tokens(message)
+        ranked: list[tuple[float, dict[str, Any]]] = []
+        for obj in service.list(user_id, limit=100):
+            if obj.get("status") in ("RETIRED", "SUPERSEDED", "DELETED"):
+                continue
+            words = _tokens(str(obj.get("content", "")))
+            overlap = len(query & words) / max(1, len(query | words))
+            # Current goals/intent/commitments remain useful even with sparse
+            # lexical overlap; all other objects need a relevance signal.
+            prior = .30 if obj.get("type") in ("GOAL", "INTENT", "COMMITMENT", "DECISION") else .05
+            score = min(1.0, prior + overlap * .8)
+            if score >= .12:
+                ranked.append((score, obj))
+        ranked.sort(key=lambda pair: (pair[0], pair[1].get("updated_at", "")), reverse=True)
+        return [ContextItem(
+            kind="semantic", id=obj["id"],
+            content=(f"{obj['type']} [{obj['modality']}, {obj['provenance']}]: "
+                     f"{obj['content']}"),
+            source=obj.get("source") or "semantic_state", relevance=score,
+            confidence=float(obj.get("confidence", 0.0)),
+            reason="Relevant canonical cognitive object from versioned personal state.",
+            extra={"type": obj["type"], "modality": obj["modality"],
+                   "provenance": obj["provenance"], "status": obj["status"]})
+                for score, obj in ranked[:6]]
+
     @staticmethod
     def _learned(kind: str, retrieval: dict[str, Any] | None,
                  limit: int) -> list[ContextItem]:

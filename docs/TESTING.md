@@ -7,7 +7,9 @@ cd backend
 python -m pytest -q
 ```
 
-**Last verified run: 74 passed, 1 skipped in 62.12s** (Python 3.13.14).
+**V9.0.1 verified run (2026-09-22): 944 passed, 23 skipped** (Python 3.13; exit 0).
+The skips are Ollama-dependent real-model tests and are reported as NOT
+CONNECTED / NOT VERIFIED, not as passes. See [V9-VERIFICATION.md](V9-VERIFICATION.md).
 
 The skip is `test_active_state_requires_a_model`, which is skipped by design
 because the optional `langmem` package is not installed.

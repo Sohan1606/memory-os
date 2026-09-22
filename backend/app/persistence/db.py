@@ -1062,6 +1062,91 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, expires_at);
 """
 
+# ===================== V9 SEMANTIC CORE SCHEMA =====================
+# Canonical meaning and personal-state records. These tables are additive and
+# use the established user_id namespace; cognitive_events remains the only
+# event/audit stream.
+SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS meaning_compilations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    thread_id TEXT,
+    input_text TEXT NOT NULL,
+    source TEXT NOT NULL,
+    compiler TEXT NOT NULL,
+    status TEXT NOT NULL,
+    semantic_json TEXT NOT NULL,
+    error TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_meaning_user ON meaning_compilations(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_meaning_corr ON meaning_compilations(correlation_id);
+
+CREATE TABLE IF NOT EXISTS cognitive_objects (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    modality TEXT NOT NULL,
+    temporal_scope_json TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    provenance TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    superseded_by TEXT,
+    compilation_id TEXT,
+    thread_id TEXT,
+    object_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cognitive_objects_user ON cognitive_objects(user_id, type, status);
+CREATE INDEX IF NOT EXISTS idx_cognitive_objects_compilation ON cognitive_objects(compilation_id);
+
+CREATE TABLE IF NOT EXISTS cognitive_object_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    object_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    object_version INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(object_id, object_version)
+);
+CREATE INDEX IF NOT EXISTS idx_cognitive_object_versions_user ON cognitive_object_versions(user_id, object_id);
+
+CREATE TABLE IF NOT EXISTS cognitive_relationships (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    provenance TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(user_id, source_id, target_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_cognitive_relationships_user ON cognitive_relationships(user_id, source_id, target_id);
+
+CREATE TABLE IF NOT EXISTS personal_state_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    snapshot_hash TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    changed_object_ids TEXT NOT NULL,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(user_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_personal_state_user ON personal_state_versions(user_id, version DESC);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
@@ -1113,6 +1198,7 @@ class Database:
             conn.executescript(SCHEMA_V843)
             conn.executescript(SCHEMA_V844)
             conn.executescript(SCHEMA_V85)
+            conn.executescript(SCHEMA_V9)
         self._migrate()
 
     def _migrate(self) -> None:

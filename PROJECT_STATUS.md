@@ -1,6 +1,38 @@
 # PROJECT STATUS
 
-**Current milestone: MEMORY//OS V8.5.1 — Real-Model Cognitive Tool Routing Reliability (correction on V8.5 Production Trust).**
+**Current milestone: MEMORY//OS V9.0.1 — Live Cognitive Surface + Semantic Extraction Hardening.**
+
+## V9.0.1 verification status (2026-09-22)
+
+| Gate | Status | Executed evidence |
+|---|---|---|
+| Live EventBus-backed surface lifecycle | **PASS** | `test_v901_hardening.py`: pre-response observation, ACTIVE→COMPLETED, DEGRADED, no invented stages, correlation/user isolation |
+| Local model semantic path and deterministic fallback | **PASS** | valid JSON, strict schema/policy, invalid JSON, timeout, unavailable/paid provider exclusion, provenance and confidence ceiling |
+| Nuanced semantic quality | **PASS** | eight issue examples cover uncertainty, negation, temporal scope, ambiguity and non-persistence |
+| V9.0.1 + V9 focused suites | **PASS** | **46 passed, 1 skipped**; skip is the real Ollama gate |
+| Full backend regression | **PASS** | **944 passed, 23 skipped**; exit 0 |
+| Frontend typecheck / lint / build | **PASS** | typecheck clean; lint zero warnings/errors; production build 8/8 pages |
+| V9 browser QA | **PASS** | **16/16** desktop/mobile; live surface appears before final surface; zero console errors/failed requests |
+| V8.5.1 browser regression | **PASS** | **12/12** |
+| Real Ollama semantic extraction | **NOT CONNECTED / NOT VERIFIED** | `test_v901_real_model.py` skipped because no Ollama server was reachable; deterministic tests are not substituted |
+
+## V9 verification status (2026-09-22)
+
+| Gate | Status | Executed evidence |
+|---|---|---|
+| Meaning Kernel, 26 object types, provenance/modality/temporal validation | **PASS** | `test_v9_semantic_core.py` |
+| Versioned personal state, reconstruction, diff, supersession, relationships | **PASS** | `test_v9_semantic_core.py` |
+| Conversation + backend Cognitive Surface + voice/text parity | **PASS** | `test_v9_conversation_surface.py` |
+| V9 authorization/isolation | **PASS** | `test_v9_security.py` |
+| V9 export/validate/restore with provenance | **PASS** | `test_v9_portability.py` |
+| Focused V9 suite | **PASS** | **30 passed** |
+| Full backend regression | **PASS** | **928 passed, 22 skipped**; exit 0 |
+| Frontend typecheck | **PASS** | `npm run typecheck`; exit 0 |
+| Frontend lint | **PASS** | `npm run lint`; zero warnings/errors |
+| Frontend production build | **PASS** | `npm run build`; 8/8 pages |
+| Desktop/mobile browser QA | **PASS** | `tests/v9_browser_qa.py` → **14/14**; conversation, backend surface, semantic object, microphone honesty, Observatory, zero console errors, zero failed requests |
+| V8.5.1 browser regression | **PASS** | `tests/v851_browser_qa.py` → **12/12** |
+| Real model (`llama3.2:3b`) | **NOT CONNECTED / NOT VERIFIED** | Ollama-dependent tests skipped; deterministic passing is not reported as real-model success |
 
 Every status below was produced by a command that was actually executed. Nothing
 is aspirational. Where a capability is absent it is marked
@@ -367,7 +399,7 @@ real-model file of four tests took 2 h 01 m, so a six-test file running for
 hours is expected behaviour, not a hang.
 
 What **is** verified for this build is stated above: the full fast suite
-(627 passed), the frontend checks, and browser QA executed against real dev
+(630 passed), the frontend checks, and browser QA executed against real dev
 servers. The equivalent conversational path was additionally exercised
 end-to-end through the browser UI, where create → pause → resume produced a
 final visible response reporting the mission as **active**, backed by the real

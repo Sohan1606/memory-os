@@ -191,6 +191,17 @@ SECURITY_V85 = (
     "admin.action",
 )
 
+# ----------------------------------------------------------------- v9 events
+# Semantic and surface transitions remain on this canonical event stream.
+SEMANTIC_V9 = (
+    "meaning.compiled", "semantic.object_created", "semantic.object_updated",
+    "semantic.object_superseded", "semantic.relationship_created",
+    "personal_state.updated", "personal_state.version_created",
+    "surface.turn_started", "surface.activity", "surface.selected",
+    "voice.session_started", "voice.session_ended",
+    "cognitive_response.generated",
+)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -203,12 +214,26 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
     + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844 + SECURITY_V85
+    + SEMANTIC_V9
 )
 
 # Human-readable labels for the primary (non-technical) UI.
 LABELS: dict[str, str] = {
     "conversation.message": "You spoke",
     "conversation.response": "Responded",
+    "meaning.compiled": "Understood the semantic shape of your message",
+    "semantic.object_created": "Added a cognitive object to personal state",
+    "semantic.object_updated": "Updated a cognitive object",
+    "semantic.object_superseded": "Replaced an earlier cognitive object",
+    "semantic.relationship_created": "Connected two cognitive objects",
+    "personal_state.updated": "Updated personal state",
+    "personal_state.version_created": "Created a reconstructable state version",
+    "surface.turn_started": "Started an observable cognitive turn",
+    "surface.activity": "Updated live cognitive activity",
+    "surface.selected": "Selected the cognitive surface from real activity",
+    "voice.session_started": "Started a voice interaction",
+    "voice.session_ended": "Ended a voice interaction",
+    "cognitive_response.generated": "Generated a cognitive response",
     "intent.detected": "Understood what you're working toward",
     "intent.updated": "Refined your objective",
     "intent.changed": "Noticed your objective changed",

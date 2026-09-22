@@ -18,7 +18,7 @@ from .config import settings
 from .runtime import Runtime, get_runtime
 from .cognition.continuity import REASONS as CONTINUITY_REASONS
 from .schemas.api import (AutonomyRequest, ChatRequest, ChatResponse,
-                          ConsolidateRequest, ControlRequest, DecisionRequest,
+                          SurfaceTurnRequest, ConsolidateRequest, ControlRequest, DecisionRequest,
                           FocusRequest,
                           ImportRequest, InfluenceOutcomeRequest,
                           MemoryCreateRequest, MemoryUpdateRequest,
@@ -43,6 +43,8 @@ from .schemas.portability import (ExportCreateRequest, RestoreApplyRequest,
                                   RestoreDryRunRequest)
 from .schemas.security import (LoginRequest, RegisterRequest, RoleChangeRequest,
                                UserCreateRequest, NamespaceMigrationRequest)
+from .schemas.semantic import (CognitiveObjectCreate, CognitiveObjectUpdate,
+                               MeaningCompileRequest, RelationshipCreate)
 from .security.context import (current_principal, current_request_id,
                                get_principal, get_request_id)
 from .security.errors import (E_CSRF, E_FORBIDDEN, E_RATE_LIMITED,
@@ -537,6 +539,30 @@ def admin_rate_limit_state(runtime: Runtime = Depends(rt)):
     return runtime.rate_limiter.state()
 
 
+# --------------------------------------------------------- v9.0.1 live surface
+@app.post("/api/v9/surface/turns")
+def start_surface_turn(req: SurfaceTurnRequest, runtime: Runtime = Depends(rt)):
+    user_id = uid(runtime, req.user_id)
+    existing = runtime.db.query_one(
+        "SELECT user_id FROM conversations WHERE id=?", (req.thread_id,))
+    if existing and existing["user_id"] != user_id:
+        raise HTTPException(status_code=409,
+                            detail="That conversation id is already in use.")
+    correlation_id = f"turn_{uuid.uuid4().hex[:16]}"
+    return runtime.cognition.surface_lifecycle.start_turn(
+        user_id, req.thread_id, correlation_id)
+
+
+@app.get("/api/v9/surface/turns/{correlation_id}")
+def get_surface_turn(correlation_id: str, user_id: str | None = None,
+                     runtime: Runtime = Depends(rt)):
+    snapshot = runtime.cognition.surface_lifecycle.snapshot(
+        uid(runtime, user_id), correlation_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Cognitive turn not found.")
+    return snapshot
+
+
 # ---------------------------------------------------------------------- chat
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, runtime: Runtime = Depends(rt)) -> ChatResponse:
@@ -559,7 +585,22 @@ def chat(req: ChatRequest, runtime: Runtime = Depends(rt)) -> ChatResponse:
     # v8.2: one correlation id spans the cognitive loop AND the agent's
     # execution trace, so /api/cognition/turn/{id} and /api/execution/{id}
     # describe the same turn.
-    correlation_id = f"turn_{uuid.uuid4().hex[:12]}"
+    if req.correlation_id:
+        live = runtime.cognition.surface_lifecycle.snapshot(
+            user_id, req.correlation_id)
+        if live is None or live["conversation"]["thread_id"] != req.thread_id:
+            raise HTTPException(status_code=404, detail="Cognitive turn not found.")
+        correlation_id = req.correlation_id
+    else:
+        correlation_id = f"turn_{uuid.uuid4().hex[:16]}"
+        runtime.cognition.surface_lifecycle.start_turn(
+            user_id, req.thread_id, correlation_id)
+    if req.interaction_mode == "voice":
+        runtime.cognition.bus.emit(
+            user_id, "voice.session_started", "Started a browser voice turn.",
+            subject_kind="conversation", subject_id=req.thread_id,
+            correlation_id=correlation_id,
+            payload={"transport": "browser_speech_recognition"})
     trace: dict[str, Any] | None = None
     try:
         trace = runtime.cognition.process_turn(
@@ -568,8 +609,18 @@ def chat(req: ChatRequest, runtime: Runtime = Depends(rt)) -> ChatResponse:
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Cognitive loop failed for this turn: %s", exc)
 
-    result = runtime.agent.run(user_id, req.thread_id, req.message,
-                               correlation_id=correlation_id)
+    runtime.cognition.surface_lifecycle.transition(
+        user_id, req.thread_id, correlation_id, "FORMING_RESPONSE", "ACTIVE")
+    try:
+        result = runtime.agent.run(user_id, req.thread_id, req.message,
+                                   correlation_id=correlation_id)
+        runtime.cognition.surface_lifecycle.transition(
+            user_id, req.thread_id, correlation_id, "FORMING_RESPONSE", "COMPLETED")
+    except Exception as exc:
+        runtime.cognition.surface_lifecycle.transition(
+            user_id, req.thread_id, correlation_id, "FORMING_RESPONSE", "FAILED",
+            detail=f"Response generation failed: {type(exc).__name__}")
+        raise
     for role, content in (("user", req.message), ("assistant", result["answer"])):
         runtime.db.execute(
             "INSERT INTO messages (thread_id, user_id, role, content, created_at)"
@@ -583,12 +634,31 @@ def chat(req: ChatRequest, runtime: Runtime = Depends(rt)) -> ChatResponse:
             correlation_id=trace["correlation_id"],
             payload={"provider": result["provider"]})
 
+    if any("RESEARCH" in str(item.get("type", ""))
+           for item in result.get("activity", [])):
+        runtime.cognition.surface_lifecycle.transition(
+            user_id, req.thread_id, correlation_id,
+            "VERIFYING_EXTERNAL_INFORMATION", "COMPLETED")
+    runtime.cognition.surface_lifecycle.transition(
+        user_id, req.thread_id, correlation_id, "WAITING_FOR_USER", "ACTIVE",
+        source_kind="conversation", source_id=req.thread_id)
+    surface = runtime.surface.build(
+        user_id, thread_id=req.thread_id, correlation_id=correlation_id,
+        meaning=(trace or {}).get("meaning"), trace=trace, agent_result=result)
+    if req.interaction_mode == "voice":
+        runtime.cognition.bus.emit(
+            user_id, "voice.session_ended", "Ended a browser voice turn.",
+            subject_kind="conversation", subject_id=req.thread_id,
+            correlation_id=correlation_id,
+            payload={"response_available": True, "speech_output": "browser_optional"})
+
     return ChatResponse(
         answer=result["answer"], provider=result["provider"],
         recalled=result["recalled"], activity=result["activity"],
         thread_id=req.thread_id,
-        correlation_id=trace["correlation_id"] if trace else None,
-        cognition=_summarize_trace(trace) if trace else None)
+        correlation_id=trace["correlation_id"] if trace else correlation_id,
+        cognition=_summarize_trace(trace) if trace else None,
+        surface=surface)
 
 
 def _summarize_trace(trace: dict[str, Any]) -> dict[str, Any]:
@@ -680,6 +750,137 @@ def delete_conversation(thread_id: str, user_id: str | None = None,
     runtime.db.execute("DELETE FROM messages WHERE thread_id=? AND user_id=?", (thread_id, u))
     runtime.db.execute("DELETE FROM conversations WHERE id=? AND user_id=?", (thread_id, u))
     return {"deleted": thread_id}
+
+
+# --------------------------------------------------------------- v9 semantics
+@app.post("/api/v9/meaning/compile")
+def compile_meaning(req: MeaningCompileRequest, runtime: Runtime = Depends(rt)):
+    user_id = uid(runtime, req.user_id)
+    correlation_id = f"meaning_{uuid.uuid4().hex[:12]}"
+    return runtime.cognition.meaning.process(
+        user_id, req.text, source=req.source, thread_id=req.thread_id,
+        correlation_id=correlation_id, persist=req.persist)
+
+
+@app.get("/api/v9/meaning/compilations")
+def meaning_compilations(limit: int = 20, user_id: str | None = None,
+                         runtime: Runtime = Depends(rt)):
+    return {"compilations": runtime.cognition.meaning.recent(
+        uid(runtime, user_id), limit=limit)}
+
+
+@app.get("/api/v9/meaning/compilations/{compilation_id}")
+def meaning_compilation(compilation_id: str, user_id: str | None = None,
+                        runtime: Runtime = Depends(rt)):
+    item = runtime.cognition.meaning.compilation(uid(runtime, user_id), compilation_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Meaning compilation not found.")
+    return item
+
+
+@app.get("/api/v9/cognitive-objects")
+def cognitive_objects(type: str | None = None, status: str | None = None,
+                      limit: int = 100, user_id: str | None = None,
+                      runtime: Runtime = Depends(rt)):
+    return {"objects": runtime.cognition.personal_state.list(
+        uid(runtime, user_id), type=type, status=status, limit=limit)}
+
+
+@app.post("/api/v9/cognitive-objects", status_code=201)
+def create_cognitive_object(req: CognitiveObjectCreate,
+                            runtime: Runtime = Depends(rt)):
+    user_id = uid(runtime, req.user_id)
+    return runtime.cognition.personal_state.create(user_id, req)
+
+
+@app.get("/api/v9/cognitive-objects/{object_id}")
+def cognitive_object(object_id: str, user_id: str | None = None,
+                     runtime: Runtime = Depends(rt)):
+    obj = runtime.cognition.personal_state.get(uid(runtime, user_id), object_id)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Cognitive object not found.")
+    return obj
+
+
+@app.patch("/api/v9/cognitive-objects/{object_id}")
+def update_cognitive_object(object_id: str, req: CognitiveObjectUpdate,
+                            user_id: str | None = None,
+                            runtime: Runtime = Depends(rt)):
+    obj = runtime.cognition.personal_state.update(uid(runtime, user_id), object_id, req)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Cognitive object not found.")
+    return obj
+
+
+@app.post("/api/v9/cognitive-objects/{object_id}/retire")
+def retire_cognitive_object(object_id: str, body: dict[str, Any] = Body(default={}),
+                            user_id: str | None = None,
+                            runtime: Runtime = Depends(rt)):
+    reason = str(body.get("reason") or "User requested retirement")[:500]
+    obj = runtime.cognition.personal_state.retire(
+        uid(runtime, user_id), object_id, reason=reason)
+    if obj is None:
+        raise HTTPException(status_code=404, detail="Cognitive object not found.")
+    return obj
+
+
+@app.post("/api/v9/relationships", status_code=201)
+def create_semantic_relationship(req: RelationshipCreate,
+                                 runtime: Runtime = Depends(rt)):
+    user_id = uid(runtime, req.user_id)
+    try:
+        return runtime.cognition.personal_state.add_relationship(user_id, req)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="One or both cognitive objects are unknown.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        if "UNIQUE constraint" in str(exc):
+            raise HTTPException(status_code=409, detail="Relationship already exists.")
+        raise
+
+
+@app.get("/api/v9/relationships")
+def semantic_relationships(object_id: str | None = None,
+                           user_id: str | None = None,
+                           runtime: Runtime = Depends(rt)):
+    return {"relationships": runtime.cognition.personal_state.relationships(
+        uid(runtime, user_id), object_id=object_id)}
+
+
+@app.get("/api/v9/personal-state")
+def personal_state(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    return runtime.cognition.personal_state.current(uid(runtime, user_id))
+
+
+@app.get("/api/v9/personal-state/versions/{version}")
+def personal_state_version(version: int, user_id: str | None = None,
+                           runtime: Runtime = Depends(rt)):
+    state = runtime.cognition.personal_state.reconstruct(
+        uid(runtime, user_id), version=version)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Personal state version not found.")
+    return state
+
+
+@app.get("/api/v9/personal-state/reconstruct")
+def reconstruct_personal_state(at: str, user_id: str | None = None,
+                               runtime: Runtime = Depends(rt)):
+    state = runtime.cognition.personal_state.reconstruct(uid(runtime, user_id), at=at)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No personal state existed at that time.")
+    return state
+
+
+@app.get("/api/v9/personal-state/diff")
+def personal_state_diff(from_version: int, to_version: int,
+                        user_id: str | None = None,
+                        runtime: Runtime = Depends(rt)):
+    diff = runtime.cognition.personal_state.diff(
+        uid(runtime, user_id), from_version, to_version)
+    if diff is None:
+        raise HTTPException(status_code=404, detail="One or both state versions are unknown.")
+    return diff
 
 
 # ------------------------------------------------------------------ memories
