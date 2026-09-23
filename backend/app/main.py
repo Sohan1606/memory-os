@@ -719,6 +719,32 @@ def _summarize_trace(trace: dict[str, Any]) -> dict[str, Any]:
                            if p.get("changed")],
         "influenced_by": [i["memory_id"] for i in (trace.get("influences") or [])],
         "excluded_memories": trace["retrieval"].get("excluded_count", 0),
+        # ----------------------------------------------------------- v10.1
+        # Canonical maintenance results for this turn. Every summary line is
+        # derived from a persisted finding record — never invented reasoning.
+        "maintenance": _summarize_maintenance(trace.get("maintenance")),
+    }
+
+
+def _summarize_maintenance(maintenance: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compact, user-safe view of this turn's bounded maintenance."""
+    if not maintenance:
+        return None
+    relevance = maintenance.get("relevance") or {}
+    return {
+        "status": maintenance.get("status"),
+        "relevant": bool(relevance.get("relevant")),
+        "trigger_kind": relevance.get("trigger_kind"),
+        "reasons": (relevance.get("reasons") or [])[:4],
+        "findings": [
+            {"kind": f.get("kind"), "classification": f.get("classification"),
+             "summary": f.get("summary"), "finding_id": f.get("finding_id")}
+            for f in (maintenance.get("findings") or [])[:8]],
+        "proposals": [
+            {"id": p.get("id"), "proposal_type": p.get("proposal_type"),
+             "status": p.get("status"), "reason": p.get("reason"),
+             "uncertainty": p.get("uncertainty")}
+            for p in (maintenance.get("proposals") or [])[:8]],
     }
 
 
@@ -2789,7 +2815,20 @@ def v10_confirm_proposal(proposal_id: str, body: ProposalActionRequest = Body(de
         user, proposal_id, reason=body.reason, correlation_id=get_request_id())
     if item is None:
         raise HTTPException(404, "Maintenance proposal not found.")
-    return item
+    # V10.1: a confirmed AND applied material update triggers exactly one
+    # bounded re-audit (depth 1, idempotent by correlation). A re-audit
+    # failure is reported inside the response; it never rolls back the
+    # already-applied canonical mutation.
+    reaudit = None
+    try:
+        reaudit = runtime.cognition.maintenance_runtime.reaudit_after_confirmation(
+            user, item, correlation_id=get_request_id())
+    except Exception as exc:  # pragma: no cover - defensive; must not 500
+        log.warning("Bounded re-audit failed after proposal %s: %s", proposal_id, exc)
+        reaudit = {"status": "FAILED", "error": str(exc)[:200]}
+    # `reaudit` is an additive field; existing clients that read only the
+    # proposal fields keep working unchanged.
+    return {**item, "reaudit": reaudit}
 
 
 @app.post("/api/v10/maintenance/proposals/{proposal_id}/reject")

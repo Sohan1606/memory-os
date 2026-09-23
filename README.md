@@ -1,15 +1,24 @@
 # MEMORY//OS
 
-**MEMORY//OS V9.0.2 baseline with the V10.0.1 Cognitive Self-Maintenance core hardening.**
+**MEMORY//OS V10.0.1 Cognitive Self-Maintenance core, with the V10.1 runtime
+integration in progress on `feature/v10.1-runtime-integration`.**
 
-The V10.0.1 core hardening is implemented on `feature/v10-cognitive-self-maintenance`: it
-adds evidence-backed cognitive debt, proposition-aware contradiction records,
-explicit unknowns, model-error classification, explainable cognitive health,
-and confirmation-gated maintenance proposals. It reuses the V9 Meaning Kernel,
-Personal State, EventBus, Prediction/Outcome records, Autonomy Governor,
-authorization, and portability system. No V10 scheduler or major UI redesign
-is claimed in this core pass. See [`docs/V10-ARCHITECTURE.md`](docs/V10-ARCHITECTURE.md)
-and [`docs/V10-VERIFICATION.md`](docs/V10-VERIFICATION.md).
+The V10.0.1 core adds evidence-backed cognitive debt, proposition-aware
+contradiction records, explicit unknowns, model-error classification,
+explainable cognitive health, and confirmation-gated maintenance proposals.
+It reuses the V9 Meaning Kernel, Personal State, EventBus, Prediction/Outcome
+records, Autonomy Governor, authorization, and portability system. See
+[`docs/V10-ARCHITECTURE.md`](docs/V10-ARCHITECTURE.md) and
+[`docs/V10-VERIFICATION.md`](docs/V10-VERIFICATION.md).
+
+V10.1 connects that maintenance core to the normal conversational turn: a
+deterministic, explainable relevance gate decides per turn whether bounded
+maintenance checks run; findings surface as canonical-evidence summaries in
+the conversation; material changes remain confirmation-gated through the
+Autonomy Governor; and a confirmed update triggers exactly one bounded
+re-audit. No scheduler, no maintenance dashboard, no parallel state. See
+[`docs/V10.1-ARCHITECTURE.md`](docs/V10.1-ARCHITECTURE.md) and
+[`docs/V10.1-VERIFICATION.md`](docs/V10.1-VERIFICATION.md).
 
 MEMORY//OS is one continuously aware personal cognitive environment. Speak or
 type naturally; the system compiles meaning into typed cognitive objects,

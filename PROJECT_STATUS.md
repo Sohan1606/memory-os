@@ -1,5 +1,32 @@
 # PROJECT STATUS
 
+## V10.1 Cognitive Self-Maintenance Runtime Integration (2026-09-23)
+
+Work is on `feature/v10.1-runtime-integration` (baseline: released V10.0.1
+mainline). V10.1 connects the existing V10 maintenance services to the normal
+conversational turn — it adds one integration module
+(`backend/app/cognition/maintenance_runtime.py`) and surgical extensions to
+the orchestrator, orchestrator trace summary, confirm endpoint, event
+vocabulary, and health metadata. No new tables, no new endpoints, no
+scheduler, no parallel systems.
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| V10.1 focused runtime suite | **PASS** | `backend/tests/test_v101_runtime_integration.py` — 28 passed (relevance, bounds, surface, findings, confirmation, re-audit, isolation, API) |
+| Relevance gate | **PASS** | Deterministic canonical-signal triggers; irrelevant turns run zero maintenance and zero maintenance stages |
+| Bounded execution | **PASS** | One audit per correlation (UNIQUE-constrained), narrowed families, no event-subscriber recursion, re-audit depth 1 via `::reaudit1` correlation marker |
+| Live surface | **PASS** | V10 stages emitted only around executed work through the existing SurfaceLifecycle; FAILED stays FAILED |
+| Confirmation / re-audit | **PASS** | Proposal → explicit confirm → AutonomyGovernor → PersonalStateService version bump → one bounded re-audit; reject/defer leave state untouched |
+| Full backend regression (non-slow) | **PASS** | 1015 passed, 10 env-gated skips, 0 failed (V8.5/V8.4.4/V9/V10 suites included) |
+| Frontend | **PASS** | `npm ci`, typecheck, lint, production build |
+| Browser | **PASS** | Real Chromium against live `next start` + FastAPI: health release, irrelevant/relevant chat turns, live V10 surface stages, workspace render, zero page errors |
+| Real model | **NOT CONNECTED** | No Ollama reachable; deterministic tests are not claimed as real-model evidence |
+| Health metadata | **PASS** | `version: "8.2"` preserved; `release` corrected to truthfully report `10.0.1`; additive `runtime_integration` flag |
+| Merge / tag / release | **NOT PERFORMED** | By directive: implementation and verification only on this branch |
+
+Details: [`docs/V10.1-ARCHITECTURE.md`](docs/V10.1-ARCHITECTURE.md),
+[`docs/V10.1-VERIFICATION.md`](docs/V10.1-VERIFICATION.md).
+
 ## V10.0.1 Cognitive Self-Maintenance Core Hardening (2026-09-23)
 
 Work is on `feature/v10-cognitive-self-maintenance`. The correction pass is

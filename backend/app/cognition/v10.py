@@ -1288,9 +1288,34 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
                        correlation_id=correlation_id, payload={"kind": kind, "from_version": older["version"], "to_version": newer["version"]})
         return drift
 
+    # All five bounded families. `audit(families=None)` preserves the exact
+    # V10.0.1 full-audit behavior; the V10.1 runtime narrows deterministically.
+    FAMILIES = ("debt", "contradictions", "unknowns", "model_errors", "drift")
+
+    def _stage(self, lifecycle, user_id: str, thread_id: str | None,
+               correlation_id: str, stage: str, status: str,
+               detail: str | None = None) -> None:
+        """Emit a truthful surface stage only when a lifecycle is attached.
+
+        Stages are emitted strictly around work that executes; a surface
+        emission failure never breaks the audit itself.
+        """
+        if lifecycle is None:
+            return
+        try:
+            lifecycle.transition(user_id, thread_id or "maintenance",
+                                 correlation_id, stage, status, detail=detail)
+        except Exception:  # pragma: no cover - observability must not break work
+            pass
+
     def audit(self, user_id: str, *, correlation_id: str | None = None,
-              include_resolved: bool = False) -> dict[str, Any]:
+              include_resolved: bool = False,
+              families: list[str] | None = None,
+              lifecycle=None, thread_id: str | None = None) -> dict[str, Any]:
         cid = correlation_id or _id("audit")
+        selected = tuple(f for f in (families or self.FAMILIES) if f in self.FAMILIES)
+        if families is not None and not selected:
+            raise ValueError("No valid maintenance families were selected.")
         existing_run = self.db.query_one(
             "SELECT status,result_json FROM maintenance_runs WHERE correlation_id=? AND user_id=? AND tenant_id=?",
             (cid, user_id, self._tenant(user_id)))
@@ -1302,14 +1327,55 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
             "INSERT INTO maintenance_runs (id,user_id,tenant_id,correlation_id,status,started_at) VALUES (?,?,?,?,?,?)",
             (_id("run"), user_id, self._tenant(user_id), cid, "RUNNING", started))
         self._emit(user_id, "cognitive_model.audit_started", "Started an explicit cognitive model audit.",
-                   subject_kind="maintenance_run", subject_id=cid, correlation_id=cid)
+                   subject_kind="maintenance_run", subject_id=cid, correlation_id=cid,
+                   payload={"families": list(selected)})
+        self._stage(lifecycle, user_id, thread_id, cid,
+                    "AUDITING_PERSONAL_MODEL", "ACTIVE")
         try:
-            debts = self.debt.detect(user_id, correlation_id=cid)
-            contradictions = self.contradictions.audit(user_id, correlation_id=cid)
-            unknowns = self.unknowns.detect(user_id, contradictions, correlation_id=cid)
-            errors = self.errors.detect(user_id, correlation_id=cid)
-            drift = self._drift(user_id, correlation_id=cid)
+            debts: list[dict[str, Any]] = []
+            contradictions: list[dict[str, Any]] = []
+            unknowns: list[dict[str, Any]] = []
+            errors: list[dict[str, Any]] = []
+            drift: list[dict[str, Any]] = []
+            if "debt" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_FOR_STALE_STATE", "ACTIVE")
+                debts = self.debt.detect(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_FOR_STALE_STATE", "COMPLETED")
+            if "contradictions" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_CONTRADICTIONS", "ACTIVE")
+                contradictions = self.contradictions.audit(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_CONTRADICTIONS", "COMPLETED")
+            if "unknowns" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_OPEN_UNKNOWNS", "ACTIVE")
+                unknowns = self.unknowns.detect(user_id, contradictions, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_OPEN_UNKNOWNS", "COMPLETED")
+            if "model_errors" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PREDICTION_TO_OUTCOME", "ACTIVE")
+                errors = self.errors.detect(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PREDICTION_TO_OUTCOME", "COMPLETED")
+                if errors:
+                    # ANALYZING_MODEL_ERROR reflects the classification work
+                    # that record() genuinely performed for these findings.
+                    self._stage(lifecycle, user_id, thread_id, cid,
+                                "ANALYZING_MODEL_ERROR", "COMPLETED")
+            if "drift" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PERSONAL_STATE", "ACTIVE")
+                drift = self._drift(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PERSONAL_STATE", "COMPLETED")
             proposals: list[dict[str, Any]] = []
+            if debts or contradictions:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "EVALUATING_MAINTENANCE_OPTIONS", "ACTIVE")
             for debt in debts:
                 if debt["debt_type"] == DebtType.STALE_ASSUMPTION.value:
                     targets = debt["object_ids"]
@@ -1338,9 +1404,13 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
                         reason="A true contradiction finding can be closed; neither underlying object will be rewritten by this proposal.",
                         evidence_refs=contradiction["evidence_refs"], uncertainty="User context is still required to choose the durable state.",
                         reversible=True, correlation_id=cid))
+            if debts or contradictions:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "EVALUATING_MAINTENANCE_OPTIONS", "COMPLETED")
             health = self.health.compute(user_id, correlation_id=cid, persist=True)
             result = {"correlation_id": cid, "status": "COMPLETED", "started_at": started,
-                      "completed_at": now(), "debt": debts, "contradictions": contradictions,
+                      "completed_at": now(), "families": list(selected),
+                      "debt": debts, "contradictions": contradictions,
                       "unknowns": unknowns, "model_errors": errors, "drift": drift,
                       "proposals": proposals, "cognitive_health": health}
             self.db.execute(
@@ -1348,7 +1418,9 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
                 (_json(result), result["completed_at"], cid, user_id, self._tenant(user_id)))
             self._emit(user_id, "cognitive_model.audit_completed", "Completed the cognitive model audit.",
                        subject_kind="maintenance_run", subject_id=cid, correlation_id=cid,
-                       payload={"status": "COMPLETED", "counts": {"debt": len(debts), "contradictions": len(contradictions), "unknowns": len(unknowns), "model_errors": len(errors), "proposals": len(proposals)}})
+                       payload={"status": "COMPLETED", "families": list(selected), "counts": {"debt": len(debts), "contradictions": len(contradictions), "unknowns": len(unknowns), "model_errors": len(errors), "proposals": len(proposals)}})
+            self._stage(lifecycle, user_id, thread_id, cid,
+                        "AUDITING_PERSONAL_MODEL", "COMPLETED")
             return result
         except Exception as exc:
             self.db.execute(
@@ -1357,6 +1429,9 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
             self._emit(user_id, "cognitive_model.audit_completed", "Cognitive model audit failed honestly.",
                        subject_kind="maintenance_run", subject_id=cid, correlation_id=cid,
                        payload={"status": "FAILED", "error": str(exc)[:300]})
+            self._stage(lifecycle, user_id, thread_id, cid,
+                        "AUDITING_PERSONAL_MODEL", "FAILED",
+                        detail=f"Audit failed: {type(exc).__name__}")
             raise
 
     def run(self, user_id: str, correlation_id: str) -> dict[str, Any] | None:

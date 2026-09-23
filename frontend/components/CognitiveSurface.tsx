@@ -13,6 +13,18 @@ const LABELS: Record<string, string> = {
   FORMING_RESPONSE: "Forming response",
   WAITING_FOR_USER: "Waiting for you",
   UPDATING_MODEL: "Updating personal model",
+  // V10.1: real maintenance stages, emitted only when the work executed.
+  AUDITING_PERSONAL_MODEL: "Auditing personal model",
+  CHECKING_FOR_STALE_STATE: "Checking for stale state",
+  COMPARING_PERSONAL_STATE: "Comparing personal state",
+  CHECKING_CONTRADICTIONS: "Checking contradictions",
+  CHECKING_OPEN_UNKNOWNS: "Checking open unknowns",
+  COMPARING_PREDICTION_TO_OUTCOME: "Comparing prediction to outcome",
+  ANALYZING_MODEL_ERROR: "Analyzing model error",
+  EVALUATING_MAINTENANCE_OPTIONS: "Evaluating maintenance options",
+  WAITING_FOR_CONFIRMATION: "Waiting for your confirmation",
+  APPLYING_VERIFIED_UPDATE: "Applying your verified update",
+  RE_AUDITING_MODEL: "Re-auditing personal model",
 };
 
 export default function CognitiveSurface({ surface, live = false }: {

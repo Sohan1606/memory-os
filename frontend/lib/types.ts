@@ -186,6 +186,36 @@ export interface TurnCognition {
   predictions: number;
   attention: { decision: string; why_now: string; surface: boolean } | null;
   autonomy: string;
+  // V10.1: bounded cognitive self-maintenance results for this turn. Every
+  // line is derived from a canonical persisted finding — never invented.
+  maintenance?: TurnMaintenance | null;
+}
+
+// ------------------------------------------------------- v10.1 maintenance
+export interface TurnMaintenance {
+  status:
+    | "NO_MAINTENANCE_NEEDED"
+    | "MAINTENANCE_COMPLETED_NO_FINDINGS"
+    | "MAINTENANCE_COMPLETED_WITH_FINDINGS"
+    | "MAINTENANCE_DEGRADED"
+    | "MAINTENANCE_FAILED"
+    | "WAITING_FOR_CONFIRMATION";
+  relevant: boolean;
+  trigger_kind: string | null;
+  reasons: string[];
+  findings: {
+    kind: string;
+    classification: string | null;
+    summary: string;
+    finding_id: string | null;
+  }[];
+  proposals: {
+    id: string;
+    proposal_type: string;
+    status: string;
+    reason: string;
+    uncertainty: string | null;
+  }[];
 }
 
 export interface WorldEntity {
