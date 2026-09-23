@@ -1147,11 +1147,161 @@ CREATE TABLE IF NOT EXISTS personal_state_versions (
 CREATE INDEX IF NOT EXISTS idx_personal_state_user ON personal_state_versions(user_id, version DESC);
 """
 
+# ===================== V10 COGNITIVE SELF-MAINTENANCE =====================
+# These tables are additive to V9. V10 records findings about canonical V9
+# objects; it does not copy or replace the semantic state, prediction, outcome,
+# causality, learning, identity, or event stores.
+SCHEMA_V10 = """
+CREATE TABLE IF NOT EXISTS cognitive_debt (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    debt_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    reason TEXT NOT NULL,
+    suggested_action TEXT,
+    object_ids_json TEXT NOT NULL DEFAULT '[]',
+    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL,
+    fingerprint TEXT NOT NULL,
+    correlation_id TEXT,
+    detected_at TEXT NOT NULL,
+    last_checked_at TEXT NOT NULL,
+    deferred_until TEXT,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_v10_debt_scope ON cognitive_debt(tenant_id, user_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS contradiction_records (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    left_object_id TEXT NOT NULL,
+    right_object_id TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    scope_analysis_json TEXT NOT NULL DEFAULT '{}',
+    temporal_analysis_json TEXT NOT NULL DEFAULT '{}',
+    proposition_analysis_json TEXT NOT NULL DEFAULT '{}',
+    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL,
+    fingerprint TEXT NOT NULL,
+    correlation_id TEXT,
+    detected_at TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_v10_contradiction_scope ON contradiction_records(tenant_id, user_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS unknown_records (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    question_object_id TEXT,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    what_unknown TEXT NOT NULL,
+    why_it_matters TEXT NOT NULL,
+    missing_evidence_json TEXT NOT NULL DEFAULT '[]',
+    resolution_path TEXT NOT NULL,
+    relevant_object_ids_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL DEFAULT 0.0,
+    fingerprint TEXT NOT NULL,
+    correlation_id TEXT,
+    identified_at TEXT NOT NULL,
+    resolved_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_v10_unknown_scope ON unknown_records(tenant_id, user_id, status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS model_error_records (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    prediction_id TEXT,
+    assumption_object_id TEXT,
+    expected_state TEXT NOT NULL,
+    actual_observation TEXT NOT NULL,
+    observation_at TEXT NOT NULL,
+    error_class TEXT NOT NULL,
+    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    confidence REAL NOT NULL,
+    learning_candidate TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_v10_model_error_scope ON model_error_records(tenant_id, user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS maintenance_proposals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    proposal_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PROPOSED',
+    target_object_ids_json TEXT NOT NULL DEFAULT '[]',
+    current_state_json TEXT NOT NULL DEFAULT '{}',
+    proposed_state_json TEXT NOT NULL DEFAULT '{}',
+    reason TEXT NOT NULL,
+    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+    uncertainty TEXT NOT NULL,
+    reversible INTEGER NOT NULL DEFAULT 1,
+    required_authority TEXT NOT NULL DEFAULT 'CONFIRMATION',
+    expires_at TEXT,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    decided_at TEXT,
+    applied_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_v10_proposal_scope ON maintenance_proposals(tenant_id, user_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS cognitive_health_snapshots (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    summary_status TEXT NOT NULL,
+    dimensions_json TEXT NOT NULL,
+    finding_refs_json TEXT NOT NULL DEFAULT '[]',
+    evidence_sufficiency TEXT NOT NULL,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_v10_health_scope ON cognitive_health_snapshots(tenant_id, user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS maintenance_runs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    correlation_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_v10_runs_scope ON maintenance_runs(tenant_id, user_id, started_at DESC);
+"""
+
 # Additive column migrations for databases created by V8/V8.1. Each entry is
 # (table, column, DDL type). Applied only when the column is absent, so
 # upgrading an existing deployment never loses data.
 
 MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # V10.0.1 contradiction records retain the deterministic proposition
+    # comparison used to classify a candidate; additive for existing V10 DBs.
+    ("contradiction_records", "proposition_analysis_json", "TEXT NOT NULL DEFAULT '{}'"),
     ("policies", "confidence", "REAL NOT NULL DEFAULT 0.0"),
     ("policies", "evidence", "TEXT"),
     ("predictions", "expected_evaluation_at", "TEXT"),
@@ -1199,6 +1349,7 @@ class Database:
             conn.executescript(SCHEMA_V844)
             conn.executescript(SCHEMA_V85)
             conn.executescript(SCHEMA_V9)
+            conn.executescript(SCHEMA_V10)
         self._migrate()
 
     def _migrate(self) -> None:

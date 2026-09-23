@@ -1319,3 +1319,21 @@ Before accepting any V10 feature, ask:
 > Does this make MEMORY//OS better at detecting, explaining, and safely maintaining the difference between what it thinks is true about a person and what the evidence currently supports?
 
 If not, it does not belong in V10.
+
+## V10.0.1 Core Hardening / Correction Pass Status
+
+This additive correction pass preserves the requirements above without redesigning the UI or adding product functionality.
+
+| Requirement area | Status and boundary |
+|---|---|
+| Proposition-aware contradiction comparison | **IMPLEMENTED** for canonical subject, object, predicate, polarity, scope, time, context, correction/supersession, modality, and uncertainty. Shared lexical tokens and polarity alone never authorize `TRUE_CONTRADICTION`; unresolved interpretation is `INSUFFICIENT_CONTEXT`. |
+| Contradiction adversarial matrix | **IMPLEMENTED** in the focused V10 suite, including coffee/tea, saving/vacation spending, work context, correction, evolution, hypothetical/uncertain, subject/object/time/scope, negation, shared-token, and competing-interpretation cases. |
+| Cognitive Debt expansion | **PARTIAL** and evidence-backed: stale assumptions, unvalidated predictions, stale world dependencies, unresolved decisions, and missing decision outcomes are implemented from canonical V9 data. Overdue commitments, contradictory goals/preferences, unresolved corrections, outdated principles, weakened claims, and material ambiguity are **NOT IMPLEMENTED** without canonical evidence. |
+| User/tenant authorization and isolation | **IMPLEMENTED** through the existing V8.5 identity/permission boundary, V10 tenant columns, tenant-correlated events, and tenant-aware validation of V9 canonical lookups, direct IDs, proposals, confirmation, and imports. |
+| Cognitive Health | **IMPLEMENTED** as decomposable, explainable dimensions with finding references and `INSUFFICIENT_EVIDENCE`; no core evidence yields `INSUFFICIENT_EVIDENCE`, evaluable dimensions alone contribute to the summary, unevaluable dimensions are exposed explicitly, and model errors are learning evidence rather than a direct instability penalty. |
+| Finding lifecycle and proposals | **IMPLEMENTED**: finding resolution is distinct from personal-state mutation. `RESOLVE_CONTRADICTION` closes only the finding; material state changes still require an explicit confirmed proposal through `PersonalStateService`. |
+| Model Error and UNKNOWN behavior | **IMPLEMENTED** for evidence-required classification, preserved outcome classes, bounded confidence/provenance, canonical links, and first-class `UNRESOLVED`/`INSUFFICIENT_CONTEXT` states. |
+| Portability and migration | **IMPLEMENTED** in the existing portability engine: additive V9-shaped reopen, V10 export/validation/reference checks/restore, duplicate and scope checks, and historical preservation are tested. |
+| Browser and real-model verification | Browser is **NOT VERIFIED** because Chromium cannot load `libnspr4.so`; V10 real-model path is **NOT CONNECTED**. These statuses are not replaced by deterministic or static evidence. |
+
+The final V10.0.1 artifact is created only after the documented hardening gates pass, from the current workspace using `scripts/make_release_zip.py`.

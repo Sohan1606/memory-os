@@ -202,6 +202,21 @@ SEMANTIC_V9 = (
     "cognitive_response.generated",
 )
 
+# V10 cognitive self-maintenance. These are findings and bounded workflow
+# transitions on the existing EventBus, not a second history.
+V10_MAINTENANCE = (
+    "cognitive_model.audit_started", "cognitive_model.audit_completed",
+    "cognitive_debt.detected", "cognitive_debt.updated", "cognitive_debt.resolved",
+    "contradiction.detected", "contradiction.classified", "contradiction.finding_resolved",
+    "contradiction.state_updated", "contradiction.resolved",
+    "maintenance.blocked",
+    "unknown.identified", "unknown.resolved",
+    "model_error.detected", "model_error.classified", "model_drift.detected",
+    "maintenance.proposed", "maintenance.confirmed", "maintenance.rejected",
+    "maintenance.deferred", "maintenance.applied",
+    "cognitive_health.updated",
+)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -214,7 +229,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
     + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844 + SECURITY_V85
-    + SEMANTIC_V9
+    + SEMANTIC_V9 + V10_MAINTENANCE
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -234,6 +249,28 @@ LABELS: dict[str, str] = {
     "voice.session_started": "Started a voice interaction",
     "voice.session_ended": "Ended a voice interaction",
     "cognitive_response.generated": "Generated a cognitive response",
+    "cognitive_model.audit_started": "Auditing the personal model",
+    "cognitive_model.audit_completed": "Completed the personal model audit",
+    "cognitive_debt.detected": "Detected unresolved cognitive debt",
+    "cognitive_debt.updated": "Updated a cognitive debt item",
+    "cognitive_debt.resolved": "Resolved a cognitive debt item",
+    "contradiction.detected": "Compared two personal-state objects",
+    "contradiction.classified": "Classified an apparent contradiction",
+    "contradiction.finding_resolved": "Closed a contradiction finding without changing personal state",
+    "contradiction.state_updated": "Updated underlying personal state separately",
+    "contradiction.resolved": "Resolved a contradiction finding after classification",
+    "maintenance.blocked": "Blocked a maintenance application at the canonical boundary",
+    "unknown.identified": "Identified an explicit unknown",
+    "unknown.resolved": "Resolved an explicit unknown",
+    "model_error.detected": "Compared a prediction with an observation",
+    "model_error.classified": "Classified a model error",
+    "model_drift.detected": "Detected change across personal-state versions",
+    "maintenance.proposed": "Proposed bounded model maintenance",
+    "maintenance.confirmed": "Confirmed a maintenance proposal",
+    "maintenance.rejected": "Rejected a maintenance proposal",
+    "maintenance.deferred": "Deferred a maintenance proposal",
+    "maintenance.applied": "Applied a confirmed model maintenance",
+    "cognitive_health.updated": "Updated explainable cognitive health",
     "intent.detected": "Understood what you're working toward",
     "intent.updated": "Refined your objective",
     "intent.changed": "Noticed your objective changed",

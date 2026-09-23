@@ -1,6 +1,15 @@
 # MEMORY//OS
 
-**MEMORY//OS V9 — Conversation-first personal cognitive operating system.**
+**MEMORY//OS V9.0.2 baseline with the V10.0.1 Cognitive Self-Maintenance core hardening.**
+
+The V10.0.1 core hardening is implemented on `feature/v10-cognitive-self-maintenance`: it
+adds evidence-backed cognitive debt, proposition-aware contradiction records,
+explicit unknowns, model-error classification, explainable cognitive health,
+and confirmation-gated maintenance proposals. It reuses the V9 Meaning Kernel,
+Personal State, EventBus, Prediction/Outcome records, Autonomy Governor,
+authorization, and portability system. No V10 scheduler or major UI redesign
+is claimed in this core pass. See [`docs/V10-ARCHITECTURE.md`](docs/V10-ARCHITECTURE.md)
+and [`docs/V10-VERIFICATION.md`](docs/V10-VERIFICATION.md).
 
 MEMORY//OS is one continuously aware personal cognitive environment. Speak or
 type naturally; the system compiles meaning into typed cognitive objects,

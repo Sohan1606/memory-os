@@ -45,6 +45,10 @@ from .schemas.security import (LoginRequest, RegisterRequest, RoleChangeRequest,
                                UserCreateRequest, NamespaceMigrationRequest)
 from .schemas.semantic import (CognitiveObjectCreate, CognitiveObjectUpdate,
                                MeaningCompileRequest, RelationshipCreate)
+from .schemas.v10 import (MaintenanceAuditRequest, ModelErrorCreate,
+                          V10ActionRequest, ProposalActionRequest,
+                          ContradictionClass)
+from .security.authz import P_COGNITION_READ, P_COGNITION_WRITE
 from .security.context import (current_principal, current_request_id,
                                get_principal, get_request_id)
 from .security.errors import (E_CSRF, E_FORBIDDEN, E_RATE_LIMITED,
@@ -2545,6 +2549,270 @@ def apply_research_world_update(update_id: str, req: ResearchWorldApplyRequest,
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return result
+
+
+# ------------------------------------------------------------ V10 maintenance
+# V10 routes use the same verified principal/permission boundary as every
+# V8.5 cognitive route. `uid()` ignores caller-selected namespaces in required
+# auth mode, and service lookups include both user and tenant scope.
+def _v10_user(runtime: Runtime, *, write: bool = False, provided: str | None = None) -> str:
+    require_permission(P_COGNITION_WRITE if write else P_COGNITION_READ, runtime)
+    return uid(runtime, provided)
+
+
+@app.get("/api/v10/cognitive-debt")
+def v10_cognitive_debt(status: str | None = None, limit: int = 100,
+                      user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return {"debt": runtime.cognition.cognitive_debt.list(user, status=status, limit=limit)}
+
+
+@app.get("/api/v10/cognitive-debt/{debt_id}")
+def v10_cognitive_debt_item(debt_id: str, user_id: str | None = None,
+                           runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    item = runtime.cognition.cognitive_debt.get(user, debt_id)
+    if item is None:
+        raise HTTPException(404, "Cognitive debt item not found.")
+    return item
+
+
+@app.post("/api/v10/cognitive-debt/{debt_id}/acknowledge")
+def v10_acknowledge_debt(debt_id: str, body: V10ActionRequest = Body(default=V10ActionRequest()),
+                         runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    try:
+        item = runtime.cognition.cognitive_debt.transition(
+            user, debt_id, "ACKNOWLEDGED", reason=body.reason,
+            correlation_id=get_request_id())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    if item is None:
+        raise HTTPException(404, "Cognitive debt item not found.")
+    return item
+
+
+@app.post("/api/v10/cognitive-debt/{debt_id}/resolve")
+def v10_resolve_debt(debt_id: str, body: V10ActionRequest = Body(default=V10ActionRequest()),
+                     runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    try:
+        item = runtime.cognition.cognitive_debt.transition(
+            user, debt_id, "RESOLVED", reason=body.reason,
+            correlation_id=get_request_id())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    if item is None:
+        raise HTTPException(404, "Cognitive debt item not found.")
+    return item
+
+
+@app.post("/api/v10/cognitive-debt/{debt_id}/defer")
+def v10_defer_debt(debt_id: str, body: V10ActionRequest = Body(default=V10ActionRequest()),
+                   runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    try:
+        item = runtime.cognition.cognitive_debt.transition(
+            user, debt_id, "DEFERRED", reason=body.reason, until=body.until,
+            correlation_id=get_request_id())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    if item is None:
+        raise HTTPException(404, "Cognitive debt item not found.")
+    return item
+
+
+@app.get("/api/v10/contradictions")
+def v10_contradictions(status: str | None = None, limit: int = 100,
+                       user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return {"contradictions": runtime.cognition.contradictions.list(user, status=status, limit=limit)}
+
+
+@app.get("/api/v10/contradictions/{record_id}")
+def v10_contradiction(record_id: str, user_id: str | None = None,
+                      runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    item = runtime.cognition.contradictions.get(user, record_id)
+    if item is None:
+        raise HTTPException(404, "Contradiction record not found.")
+    return item
+
+
+@app.post("/api/v10/contradictions/{record_id}/resolve")
+def v10_resolve_contradiction(record_id: str, body: V10ActionRequest = Body(default=V10ActionRequest()),
+                              runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    item = runtime.cognition.contradictions.get(user, record_id)
+    if item is None:
+        raise HTTPException(404, "Contradiction record not found.")
+    try:
+        return runtime.cognition.contradictions.resolve(
+            user, record_id, status="RESOLVED_FINDING",
+            classification=body.classification.value if body.classification else None,
+            correlation_id=get_request_id())
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/v10/contradictions/{record_id}/dismiss")
+def v10_dismiss_contradiction(record_id: str, body: V10ActionRequest = Body(default=V10ActionRequest()),
+                              runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    if runtime.cognition.contradictions.get(user, record_id) is None:
+        raise HTTPException(404, "Contradiction record not found.")
+    return runtime.cognition.contradictions.resolve(
+        user, record_id, status="DISMISSED", correlation_id=get_request_id())
+
+
+@app.get("/api/v10/unknowns")
+def v10_unknowns(status: str | None = None, limit: int = 100,
+                 user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return {"unknowns": runtime.cognition.unknowns.list(user, status=status, limit=limit)}
+
+
+@app.get("/api/v10/unknowns/{unknown_id}")
+def v10_unknown(unknown_id: str, user_id: str | None = None,
+                runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    item = runtime.cognition.unknowns.get(user, unknown_id)
+    if item is None:
+        raise HTTPException(404, "Unknown record not found.")
+    return item
+
+
+@app.post("/api/v10/unknowns/{unknown_id}/resolve")
+def v10_resolve_unknown(unknown_id: str, body: V10ActionRequest = Body(default=V10ActionRequest()),
+                       runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    try:
+        item = runtime.cognition.unknowns.resolve(
+            user, unknown_id, reason=body.reason or "", correlation_id=get_request_id())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if item is None:
+        raise HTTPException(404, "Unknown record not found.")
+    return item
+
+
+@app.get("/api/v10/model-errors")
+def v10_model_errors(limit: int = 100, user_id: str | None = None,
+                     runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return {"model_errors": runtime.cognition.model_errors.list(user, limit=limit)}
+
+
+@app.get("/api/v10/model-errors/{error_id}")
+def v10_model_error(error_id: str, user_id: str | None = None,
+                    runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    item = runtime.cognition.model_errors.get(user, error_id)
+    if item is None:
+        raise HTTPException(404, "Model-error record not found.")
+    return item
+
+
+@app.post("/api/v10/model-errors")
+def v10_record_model_error(body: ModelErrorCreate, runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    values = body.model_dump()
+    values["classification"] = values["classification"].value if values.get("classification") else None
+    try:
+        return runtime.cognition.model_errors.record(user, **values,
+                                                     correlation_id=get_request_id())
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/api/v10/cognitive-health")
+def v10_cognitive_health(user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return runtime.cognition.cognitive_health.compute(user, correlation_id=get_request_id())
+
+
+@app.get("/api/v10/cognitive-health/explain")
+def v10_cognitive_health_explain(user_id: str | None = None,
+                                runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return runtime.cognition.cognitive_health.explain(user, correlation_id=get_request_id())
+
+
+@app.post("/api/v10/maintenance/audit")
+def v10_maintenance_audit(req: MaintenanceAuditRequest = Body(default=MaintenanceAuditRequest()),
+                          runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    cid = req.correlation_id or f"v10_{uuid.uuid4().hex[:16]}"
+    try:
+        return runtime.cognition.self_maintenance.audit(
+            user, correlation_id=cid, include_resolved=req.include_resolved)
+    except Exception as exc:
+        # The orchestrator persists FAILED before the exception reaches this
+        # boundary; the API does not relabel it as successful maintenance.
+        raise HTTPException(500, f"Maintenance audit failed: {str(exc)[:200]}")
+
+
+@app.get("/api/v10/maintenance/runs/{correlation_id}")
+def v10_maintenance_run(correlation_id: str, user_id: str | None = None,
+                        runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    result = runtime.cognition.self_maintenance.run(user, correlation_id)
+    if result is None:
+        raise HTTPException(404, "Maintenance run not found.")
+    return result
+
+
+@app.get("/api/v10/maintenance/proposals")
+def v10_maintenance_proposals(status: str | None = None, limit: int = 100,
+                              user_id: str | None = None, runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return {"proposals": runtime.cognition.maintenance_proposals.list(user, status=status, limit=limit)}
+
+
+@app.get("/api/v10/maintenance/proposals/{proposal_id}")
+def v10_maintenance_proposal(proposal_id: str, user_id: str | None = None,
+                             runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    item = runtime.cognition.maintenance_proposals.get(user, proposal_id)
+    if item is None:
+        raise HTTPException(404, "Maintenance proposal not found.")
+    return item
+
+
+@app.post("/api/v10/maintenance/proposals/{proposal_id}/confirm")
+def v10_confirm_proposal(proposal_id: str, body: ProposalActionRequest = Body(default=ProposalActionRequest()),
+                         runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    if not body.confirmation:
+        raise HTTPException(400, "Explicit confirmation is required.")
+    item = runtime.cognition.maintenance_proposals.confirm(
+        user, proposal_id, reason=body.reason, correlation_id=get_request_id())
+    if item is None:
+        raise HTTPException(404, "Maintenance proposal not found.")
+    return item
+
+
+@app.post("/api/v10/maintenance/proposals/{proposal_id}/reject")
+def v10_reject_proposal(proposal_id: str, body: ProposalActionRequest = Body(default=ProposalActionRequest()),
+                        runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    item = runtime.cognition.maintenance_proposals.reject(
+        user, proposal_id, reason=body.reason, correlation_id=get_request_id())
+    if item is None:
+        raise HTTPException(404, "Maintenance proposal not found.")
+    return item
+
+
+@app.post("/api/v10/maintenance/proposals/{proposal_id}/defer")
+def v10_defer_proposal(proposal_id: str, body: ProposalActionRequest = Body(default=ProposalActionRequest()),
+                       runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    item = runtime.cognition.maintenance_proposals.defer(
+        user, proposal_id, until=body.until, reason=body.reason,
+        correlation_id=get_request_id())
+    if item is None:
+        raise HTTPException(404, "Maintenance proposal not found.")
+    return item
 
 
 # -------------------------------------------------------------- maintenance

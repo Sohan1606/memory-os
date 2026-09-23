@@ -29,14 +29,18 @@ PACKAGE_FORMAT_VERSION = 1
 SCHEMA_VERSION = "9.0"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({
     "8.1", "8.2", "8.3", "8.3.1", "8.4.1", "8.4.2", "8.4.3", "8.4.4",
-    "8.5", "9.0",
+    "8.5", "9.0", "10.0",
 })
+# The package remains backward-compatible with the established V9 schema
+# marker; this records the additive V10 maintenance payload explicitly.
+V10_MAINTENANCE_VERSION = "10.0.1"
 
 DOMAINS = (
     "memories", "events", "world", "user_model", "intents", "needs",
     "experiences", "skills", "principles", "causality", "predictions",
     "decisions", "commitments", "plans", "goals", "research",
     "explanations", "conversations", "configuration", "semantic_state",
+    "maintenance",
 )
 
 # Table names come from the existing persistence schema. Keeping this allowlist
@@ -59,6 +63,9 @@ TABLES = (
     "research_claims", "research_conflicts", "research_world_updates",
     "meaning_compilations", "cognitive_objects", "cognitive_object_versions",
     "cognitive_relationships", "personal_state_versions",
+    "cognitive_debt", "contradiction_records", "unknown_records",
+    "model_error_records", "maintenance_proposals", "cognitive_health_snapshots",
+    "maintenance_runs",
 )
 
 TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -98,6 +105,15 @@ TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
     "cognitive_object_versions": ("semantic_state", "events"),
     "cognitive_relationships": ("semantic_state", "causality"),
     "personal_state_versions": ("semantic_state", "user_model", "events"),
+    # V10 findings are derived from canonical semantic/prediction/outcome state
+    # but remain portable so an audit can be reconstructed deterministically.
+    "cognitive_debt": ("maintenance", "semantic_state", "events"),
+    "contradiction_records": ("maintenance", "semantic_state", "events"),
+    "unknown_records": ("maintenance", "semantic_state", "events"),
+    "model_error_records": ("maintenance", "semantic_state", "predictions", "events"),
+    "maintenance_proposals": ("maintenance", "semantic_state", "events"),
+    "cognitive_health_snapshots": ("maintenance", "user_model", "events"),
+    "maintenance_runs": ("maintenance", "events"),
 }
 
 # A small explicit dependency graph. A request for a high-level object brings
@@ -186,6 +202,7 @@ def _normalize_domains(domains: Iterable[str] | None) -> list[str]:
         "world_model": ("world",), "user": ("user_model",), "needs": ("needs",),
         "evidence": ("research",), "provenance": ("research",),
         "research_evidence": ("research",), "recovery": ("events",),
+        "v10": ("maintenance",), "cognitive_maintenance": ("maintenance",),
     }
     result: list[str] = []
     for raw in domains:
@@ -288,12 +305,22 @@ class PortabilityService:
         except Exception:  # audit failure must not turn a completed operation into a lie
             log.exception("Portability audit event failed: %s", event_type)
 
+    def _tenant_for_user(self, user_id: str) -> str:
+        row = self.db.query_one("SELECT tenant_id FROM auth_users WHERE namespace=?", (user_id,))
+        return str(row["tenant_id"]) if row else "local"
+
     def _user_rows(self, table: str, user_id: str) -> list[dict[str, Any]]:
         columns, _ = _table_info(self.db, table)
         if not columns:
             return []
         if "user_id" in columns:
-            rows = self.db.query(f"SELECT * FROM {table} WHERE user_id = ?", (user_id,))
+            if "tenant_id" in columns:
+                rows = self.db.query(f"SELECT * FROM {table} WHERE user_id = ? AND tenant_id = ?",
+                                     (user_id, self._tenant_for_user(user_id)))
+            else:
+                # V9 canonical tables have no tenant column; their user_id is
+                # scoped through auth_users by the V10 boundary services.
+                rows = self.db.query(f"SELECT * FROM {table} WHERE user_id = ?", (user_id,))
         elif table == "memory_versions":
             ids = [r["id"] for r in self.db.query("SELECT id FROM memories WHERE user_id=?", (user_id,))]
             rows = self._in_query(table, "memory_id", ids)
@@ -336,10 +363,12 @@ class PortabilityService:
             "format": PACKAGE_FORMAT,
             "format_version": PACKAGE_FORMAT_VERSION,
             "schema_version": SCHEMA_VERSION,
+            "maintenance_schema_version": V10_MAINTENANCE_VERSION,
             "application": "MEMORY//OS",
             "application_release": SCHEMA_VERSION,
             "export_id": export_id,
             "user_id": user_id,
+            "tenant_id": self._tenant_for_user(user_id),
             "exported_at": now(),
             "selected_domains": domains,
             "object_counts": counts,
@@ -391,6 +420,7 @@ class PortabilityService:
             # tokens, credentials and local paths are deliberately absent.
             config_metadata = {
                 "schema_version": SCHEMA_VERSION,
+                "maintenance_schema_version": V10_MAINTENANCE_VERSION,
                 "application_release": SCHEMA_VERSION,
                 "model_provider": str(getattr(self.settings, "model_provider", "unknown")),
                 "embedding_mode": "disabled" if getattr(self.settings, "disable_embeddings", False) else "configured",
@@ -553,6 +583,11 @@ class PortabilityService:
             manifest, rows_by_table, errors, warnings = self._read_archive(package.read_bytes())
             if manifest and manifest.get("user_id") != user_id:
                 errors.append("Package owner does not match the authenticated restore scope.")
+            if manifest and manifest.get("maintenance_schema_version") not in {None, V10_MAINTENANCE_VERSION}:
+                errors.append("Unsupported V10 maintenance payload version.")
+            if (manifest and manifest.get("tenant_id") is not None and
+                    manifest.get("tenant_id") != self._tenant_for_user(user_id)):
+                errors.append("Package tenant does not match the authenticated restore scope.")
             if manifest and not manifest.get("selected_domains"):
                 errors.append("Manifest selected_domains is empty.")
             if not errors:
@@ -722,6 +757,14 @@ class PortabilityService:
                     errors.append(f"Record in {table} is missing its primary-key fields.")
                 if "user_id" in row and row["user_id"] != user_id:
                     errors.append(f"Record in {table} has a different user scope.")
+                if ("tenant_id" in row and manifest.get("tenant_id") is not None and
+                        row["tenant_id"] != manifest.get("tenant_id")):
+                    errors.append(f"Record in {table} has a different tenant scope.")
+        v10_tables = {"cognitive_debt", "contradiction_records", "unknown_records",
+                      "model_error_records", "maintenance_proposals",
+                      "cognitive_health_snapshots", "maintenance_runs"}
+        if any(rows_by_table.get(table) for table in v10_tables) and not manifest.get("tenant_id"):
+            errors.append("V10 maintenance rows require an explicit manifest tenant scope.")
         relationship_count = sum(len(rows_by_table.get(table, [])) for table in
                                  ("memory_relationships", "world_links", "mission_links", "causal_links"))
         if relationship_count > self.limits["relationships"]:
@@ -749,6 +792,54 @@ class PortabilityService:
             for row in rows_by_table.get(table, []):
                 if str(row.get("item_id")) not in knowledge_ids:
                     errors.append(f"{table} contains a dangling learned-object reference.")
+
+        # V10 findings are portable derived state, not free-floating JSON.
+        # Every linked id must resolve inside this package or in the same
+        # authenticated canonical V9 namespace. This catches duplicate,
+        # dangling, and cross-tenant references before restore.
+        package_ids = {str(row.get("id")) for rows in rows_by_table.values()
+                       for row in rows if row.get("id") is not None}
+        linked: list[tuple[str, Any]] = []
+        def json_value(row: dict[str, Any], key: str, default: Any) -> Any:
+            value = row.get(key)
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except (TypeError, ValueError):
+                    return default
+            return value if value is not None else default
+        for row in rows_by_table.get("cognitive_debt", []):
+            linked.extend(("cognitive_debt.object_ids", x) for x in json_value(row, "object_ids_json", []))
+            linked.extend(("cognitive_debt.evidence_refs", x.get("id"))
+                          for x in json_value(row, "evidence_refs_json", []) if isinstance(x, dict))
+        for row in rows_by_table.get("contradiction_records", []):
+            linked.extend(("contradiction_records", row.get(key)) for key in ("left_object_id", "right_object_id"))
+        for row in rows_by_table.get("unknown_records", []):
+            linked.append(("unknown_records.question_object_id", row.get("question_object_id")))
+            linked.extend(("unknown_records.relevant_object_ids", x)
+                          for x in json_value(row, "relevant_object_ids_json", []))
+        for row in rows_by_table.get("model_error_records", []):
+            linked.extend(("model_error_records", row.get(key))
+                          for key in ("prediction_id", "assumption_object_id"))
+        for row in rows_by_table.get("maintenance_proposals", []):
+            linked.extend(("maintenance_proposals.target_object_ids", x)
+                          for x in json_value(row, "target_object_ids_json", []))
+        for label, ref in linked:
+            if ref in (None, "", "null"):
+                continue
+            ref = str(ref)
+            if ref in package_ids:
+                continue
+            found = False
+            for table in TABLES:
+                columns, _ = _table_info(self.db, table)
+                if "id" not in columns or "user_id" not in columns:
+                    continue
+                if self.db.query_one(f"SELECT 1 FROM {table} WHERE id=? AND user_id=?", (ref, user_id)):
+                    found = True
+                    break
+            if not found:
+                errors.append(f"{label} references a missing canonical object: {ref}")
         return errors
 
     def _untrusted_content_warnings(self, rows_by_table: dict[str, list[dict[str, Any]]]) -> list[str]:
