@@ -1,6 +1,31 @@
 # PROJECT STATUS
 
-**Current milestone: MEMORY//OS V9.0.2 — Real Ollama Semantic Extraction Hardening.**
+## V10.0.1 Cognitive Self-Maintenance Core Hardening (2026-09-23)
+
+Work is on `feature/v10-cognitive-self-maintenance`. The correction pass is
+additive and preserves the V9/V8.5 authority boundaries. No UI redesign,
+futuristic visualization, mock functionality, or autonomous scheduler was added.
+
+| Gate | Status | Evidence |
+|---|---|---|
+| V10 focused services/domain/persistence | **PASS** | `backend/tests/test_v10_cognitive_maintenance.py` — 23 passed |
+| Proposition-aware contradiction matrix | **PASS** | Canonical proposition identity; pair-conditioned correction/supersession, same-type value evolution, temporary-exception metadata only on matching opposite-polarity pairs, scope/time/modality/uncertainty, adversarial matrix |
+| Evidence-backed Cognitive Debt | **PARTIAL** | Stale assumptions, unvalidated predictions, stale world dependencies, unresolved decisions, and missing outcomes; unsupported categories documented as NOT IMPLEMENTED |
+| V10 additive schema and V9 reopen | **PASS** | Additive migration; V9-shaped reopen preserves legacy rows and recreates V10 tables |
+| V10 EventBus lifecycle | **PASS** | Typed canonical events, tenant payloads, correlation IDs, finding-only contradiction resolution |
+| V10 authorization/isolation | **PASS** | Direct-ID, user substitution, proposal/confirmation, canonical V9 lookup and cross-scope coverage |
+| V10 portability export/validate/restore | **PASS** | Maintenance schema marker, tenant/reference checks, duplicate/scope safety, actual restore coverage |
+| Full backend suite | **PASS** | 987 passed, 10 skipped, 13 deselected, 4 existing marker warnings; exit 0 |
+| Frontend typecheck/lint/build | **PASS** | `npm ci`, typecheck, lint, production build; 8/8 static pages (no frontend changes in hardening) |
+| Browser verification | **NOT VERIFIED** | Playwright Chromium cannot launch because sandbox lacks `libnspr4.so` |
+| V10 real-model status | **NOT CONNECTED** | Deterministic authority path only; no real model evidence claimed |
+
+Status meanings and the remaining PARTIAL/NOT IMPLEMENTED boundaries are recorded
+in [`docs/V10-VERIFICATION.md`](docs/V10-VERIFICATION.md),
+[`docs/V10-ARCHITECTURE.md`](docs/V10-ARCHITECTURE.md), and
+[`docs/V10-PORTABILITY.md`](docs/V10-PORTABILITY.md).
+
+**Current milestone: MEMORY//OS V10.0.1 Core Hardening.**
 
 ## V9.0.2 verification status (2026-09-22)
 

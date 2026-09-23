@@ -1,5 +1,20 @@
 # Testing
 
+## V10 focused verification
+
+On 2026-09-23, the V10 core suite ran against the real Runtime composition root:
+
+```bash
+PYTHONPATH=backend pytest -q backend/tests/test_v10_cognitive_maintenance.py
+# 9 passed
+```
+
+It covers additive schema creation, stale-assumption debt, proposal confirmation,
+contradiction scope/evolution behavior, explicit unknowns, model-error classes,
+explainable health, correlated maintenance events, and V10 portability export.
+See [`V10-VERIFICATION.md`](V10-VERIFICATION.md).
+
+
 ## Backend
 
 ```bash
@@ -545,3 +560,18 @@ unweakened; they exercise the narrowed surface end-to-end against a live
 Browser QA: `tests/v851_browser_qa.py` (12 checks) — chat surface answers a
 mission question from the real registry, the agent-activity trail renders,
 Observatory panels load, mobile 390px layout, zero console errors.
+
+## V10.0.1 core hardening gate
+
+The final V10 hardening gate is:
+
+```text
+PYTHONPATH=backend pytest -q
+```
+
+On 2026-09-23 it completed with **979 passed, 23 skipped, 4 warnings**. The
+focused V10 file completed with **15 passed**. Skipped tests are explicit
+real-model/environment gates; deterministic tests are not reported as real-model
+success. Browser QA remains **NOT VERIFIED** because Chromium cannot load the
+sandbox's missing `libnspr4.so`. See [`V10-VERIFICATION.md`](V10-VERIFICATION.md)
+for the portability, migration, frontend, browser, and model-status matrix.

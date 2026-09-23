@@ -58,6 +58,9 @@ from .sandbox import Sandbox
 from .self_model import Continuity, RecoveryManager, SelfModel
 from .trust_v2 import CapabilityTrust
 from .world import WorldModel
+from .v10 import (CognitiveDebtService, ContradictionEngine, UnknownService,
+                  ModelErrorService, MaintenanceProposalService,
+                  CognitiveHealthService, SelfMaintenanceOrchestrator)
 
 
 class Cognition:
@@ -171,6 +174,35 @@ class Cognition:
             db, self.bus, self.personal_state, self.focus,
             provider=runtime.provider, capability_router=self.router,
             model_lock=getattr(runtime, "llm_lock", None))
+
+        # ---------------------------------------------------------- v10 core
+        # These services read and write only the canonical V9 state and the
+        # existing EventBus. The tenant is taken from the verified principal at
+        # the API boundary; local mode has the deterministic local namespace.
+        tenant_id = "local"
+        self.cognitive_debt = CognitiveDebtService(
+            db, self.bus, self.personal_state, self.predictions, tenant_id=tenant_id)
+        self.contradictions = ContradictionEngine(
+            db, self.bus, self.personal_state, tenant_id=tenant_id)
+        self.unknowns = UnknownService(
+            db, self.bus, self.personal_state, tenant_id=tenant_id)
+        self.model_errors = ModelErrorService(
+            db, self.bus, self.personal_state, tenant_id=tenant_id)
+        self.maintenance_proposals = MaintenanceProposalService(
+            db, self.bus, self.personal_state, self.cognitive_debt,
+            self.contradictions, self.unknowns, self.autonomy, tenant_id=tenant_id)
+        self.cognitive_health = CognitiveHealthService(
+            db, self.bus, self.personal_state, self.cognitive_debt,
+            self.contradictions, self.unknowns, self.model_errors,
+            tenant_id=tenant_id)
+        self.self_maintenance = SelfMaintenanceOrchestrator(
+            db, self.bus, self.personal_state, self.cognitive_debt,
+            self.contradictions, self.unknowns, self.model_errors,
+            self.maintenance_proposals, self.cognitive_health, self.autonomy,
+            tenant_id=tenant_id)
+        # Clear names for integrations and tests; these are references to the
+        # same services, not a parallel implementation.
+        self.v10 = self.self_maintenance
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,

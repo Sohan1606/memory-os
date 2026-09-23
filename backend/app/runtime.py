@@ -170,6 +170,13 @@ class Runtime:
                 "extraction": self.cognition.extractor.status(),
                 "perception": self.cognition.perception.capabilities(),
                 "semantic_extraction": self.cognition.meaning.model_compiler.status(),
+                "v10": {
+                    "enabled": True,
+                    "debt": len(self.cognition.cognitive_debt.list(self.settings.demo_user_id)),
+                    "contradictions": len(self.cognition.contradictions.list(self.settings.demo_user_id)),
+                    "unknowns": len(self.cognition.unknowns.list(self.settings.demo_user_id)),
+                    "model_errors": len(self.cognition.model_errors.list(self.settings.demo_user_id)),
+                },
             },
             # v8.2: capability truth and how each task would actually execute.
             "capabilities": self.cognition.router.report().as_dict(),
