@@ -14,7 +14,7 @@ Verified in the local workspace on 2026-09-23, branch `feature/v10-cognitive-sel
 
 ```text
 PYTHONPATH=backend pytest -q backend/tests/test_v10_cognitive_maintenance.py
-21 passed
+23 passed
 ```
 
 The focused tests use the real `Runtime`, `Database`, `Cognition`, V9 `PersonalStateService`, V9 prediction/decision/world tables, canonical EventBus, Autonomy Governor, V10 persistence, orchestrator, and existing `PortabilityService`.
@@ -31,6 +31,7 @@ Coverage includes:
 - `INSUFFICIENT_CONTEXT`/UNKNOWN behavior and explainable health dimensions;
 - model errors treated as learning evidence rather than automatic model/person instability;
 - health summary rule: no canonical evidence or insufficient core evidence yields `INSUFFICIENT_EVIDENCE`; otherwise only evaluable dimensions contribute to the aggregate, while `evaluable_dimensions` and `unevaluable_dimensions` are exposed explicitly;
+- correction/supersession pair semantics: `corrects_object_id`, `supersedes_object_id`, and `superseded_by` must identify one of the two compared objects; explicit value evolution requires same-type objects; `temporary_exception` metadata is honored only for a matching opposite-polarity proposition pair; `PREDICTIVE_TRACKING` counts only `correct`/`incorrect` evaluated outcomes and excludes `expired`/`cancelled` records;
 - finding-only contradiction resolution and bounded `RESOLVE_CONTRADICTION` confirmation;
 - canonical typed correlated events with tenant payloads and idempotent maintenance runs;
 - V9→V10 export, tenant/reference validation, duplicate/reference safety, restore, and historical-state preservation.
@@ -39,7 +40,7 @@ Coverage includes:
 
 ```text
 PYTHONPATH=backend pytest -q
-985 passed, 10 skipped, 13 deselected, 4 warnings
+987 passed, 10 skipped, 13 deselected, 4 warnings
 ```
 
 The full backend command exited 0. The 23 skips are environment-dependent real-model/Ollama tests. The four warnings are existing `PytestUnknownMarkWarning` entries for repository `slow` markers; no failure was hidden or weakened.

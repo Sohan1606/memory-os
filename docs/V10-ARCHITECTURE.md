@@ -54,7 +54,7 @@ The following are deterministic and authoritative:
 - lifecycle transitions;
 - object/evidence references;
 - stale-assumption, unvalidated-prediction, stale-world-dependency, unresolved-decision, and missing-outcome debt rules;
-- proposition-aware contradiction scope/temporal/polarity/modality/uncertainty checks;
+- proposition-aware contradiction scope/temporal/polarity/modality/uncertainty checks, with correction/supersession metadata accepted only when it targets one of the compared objects;
 - explicit `UNKNOWN` results when context is insufficient;
 - model-error classification flags;
 - proposal authority and canonical mutation;
@@ -93,7 +93,7 @@ There is no V10 scheduler, no hidden background intelligence claim, no frontend 
 
 | Area | Status | Boundary |
 |---|---|---|
-| Proposition-aware contradiction matrix | **IMPLEMENTED** | Deterministic canonical comparison, explicit correction/evolution/scope/time/modality handling, and adversarial coffee/tea, spending, work context, negation, shared-token, and competing-interpretation coverage. |
+| Proposition-aware contradiction matrix | **IMPLEMENTED** | Deterministic canonical comparison; correction/supersession, value evolution, and temporary-exception metadata are pair-conditioned; scope/time/modality handling and adversarial coffee/tea, spending, work context, negation, shared-token, and competing-interpretation coverage are included. |
 | Evidence-backed Cognitive Debt | **PARTIAL** | Only categories backed by current canonical V9 rows are detected. Overdue commitments, contradictory goals/preferences, outdated principles, weakened claims, and material ambiguity are **NOT IMPLEMENTED** as debt rules without canonical lifecycle evidence. |
 | Tenant-aware canonical lookups | **IMPLEMENTED** | V10 rows use user plus tenant; V9 predictions, decisions, world entities, and state-version lookups are checked through `auth_users.namespace → tenant_id`; legacy no-identity databases use the documented migration fallback. |
 | Health explanations | **IMPLEMENTED** | Dimensions carry scores, explanations, finding references, and evidence sufficiency. `MODEL_STABILITY` is `INSUFFICIENT_EVIDENCE` rather than treating model errors as human or model instability. |

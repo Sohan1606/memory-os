@@ -359,9 +359,12 @@ def test_contradiction_generalization_uses_canonical_relations_not_object_keywor
         assert evolution_a["classification"] == evolution_b["classification"] == ContradictionClass.VALUE_EVOLUTION.value
         exception_a = relation("I like coffee.", "I do not like coffee.", CognitiveType.PREFERENCE,
                                {"temporary_exception": True}, {"temporary_exception": True})
-        exception_b = relation("I prefer coffee.", "I avoid coffee for this event.", CognitiveType.PREFERENCE,
+        exception_b = relation("I prefer coffee.", "I avoid coffee.", CognitiveType.PREFERENCE,
                                {"temporary_exception": True}, {"temporary_exception": True})
         assert exception_a["classification"] == exception_b["classification"] == ContradictionClass.TEMPORARY_EXCEPTION.value
+        unrelated_exception = relation("I like coffee.", "I dislike tea.", CognitiveType.PREFERENCE,
+                                       {"temporary_exception": True}, {"temporary_exception": True})
+        assert unrelated_exception["classification"] != ContradictionClass.TEMPORARY_EXCEPTION.value
     finally:
         rt.close(); shutil.rmtree(root, ignore_errors=True)
 
@@ -635,5 +638,65 @@ def test_maintenance_proposal_mutations_enforce_verified_user_and_tenant_scope()
         assert rt.db.query_one(
             "SELECT 1 FROM maintenance_proposals WHERE id=? AND user_id=? AND tenant_id=?",
             (proposal_id, user_a, tenant_a["id"])) is None
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_correction_supersession_requires_the_compared_target_pair():
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        value_a = obj(rt, user, CognitiveType.VALUE, "I value saving money.")
+        correction_a = obj(
+            rt, user, CognitiveType.CORRECTION,
+            "Correction: I do not value saving money.",
+            metadata={"corrects_object_id": value_a["id"]})
+        unrelated = obj(rt, user, CognitiveType.PREFERENCE, "I like coffee.")
+        correction_unrelated = obj(
+            rt, user, CognitiveType.CORRECTION,
+            "Correction: I do not like coffee.",
+            metadata={"corrects_object_id": unrelated["id"]})
+
+        assert rt.cognition.contradictions.classify(value_a, correction_a)["classification"] == ContradictionClass.SUPERSESSION.value
+        assert rt.cognition.contradictions.classify(correction_a, value_a)["classification"] == ContradictionClass.SUPERSESSION.value
+        assert rt.cognition.contradictions.classify(correction_a, unrelated)["classification"] != ContradictionClass.SUPERSESSION.value
+        assert rt.cognition.contradictions.classify(unrelated, correction_a)["classification"] != ContradictionClass.SUPERSESSION.value
+        assert rt.cognition.contradictions.classify(correction_a, correction_unrelated)["classification"] != ContradictionClass.SUPERSESSION.value
+        explicit_superseder = obj(
+            rt, user, CognitiveType.OBSERVATION,
+            "The saving-money value is superseded.",
+            metadata={"supersedes_object_id": value_a["id"]})
+        assert rt.cognition.contradictions.classify(explicit_superseder, value_a)["classification"] == ContradictionClass.SUPERSESSION.value
+        assert rt.cognition.contradictions.classify(explicit_superseder, unrelated)["classification"] != ContradictionClass.SUPERSESSION.value
+
+        superseding = dict(value_a)
+        superseding["superseded_by"] = correction_a["id"]
+        assert rt.cognition.contradictions.classify(superseding, correction_a)["classification"] == ContradictionClass.SUPERSESSION.value
+
+        evolved = obj(rt, user, CognitiveType.VALUE, "My priorities changed; exploration matters more now.")
+        stable = obj(rt, user, CognitiveType.VALUE, "I value career stability.")
+        assert rt.cognition.contradictions.classify(evolved, stable)["classification"] == ContradictionClass.VALUE_EVOLUTION.value
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_predictive_tracking_excludes_expired_and_cancelled_without_outcomes():
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        observed = rt.cognition.predictions.create(user, "Observed prediction", .8)
+        rt.cognition.predictions.evaluate(user, observed["id"], True, "Observed outcome")
+        expired = rt.cognition.predictions.create(user, "Expired prediction", .8)
+        cancelled = rt.cognition.predictions.create(user, "Cancelled prediction", .8)
+        rt.db.execute("UPDATE predictions SET status='expired' WHERE id=? AND user_id=?", (expired["id"], user))
+        rt.db.execute("UPDATE predictions SET status='cancelled' WHERE id=? AND user_id=?", (cancelled["id"], user))
+
+        health = rt.cognition.cognitive_health.compute(user, persist=False)
+        tracking = health["dimensions"]["PREDICTIVE_TRACKING"]
+        assert tracking["score"] == pytest.approx(1 / 3, abs=0.001)
+        assert "1 of 3" in tracking["explanation"]
+        assert "expired and cancelled" in tracking["explanation"]
+        assert expired["id"] in tracking["finding_refs"]
+        assert cancelled["id"] in tracking["finding_refs"]
     finally:
         rt.close(); shutil.rmtree(root, ignore_errors=True)

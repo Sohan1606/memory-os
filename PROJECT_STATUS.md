@@ -8,14 +8,14 @@ futuristic visualization, mock functionality, or autonomous scheduler was added.
 
 | Gate | Status | Evidence |
 |---|---|---|
-| V10 focused services/domain/persistence | **PASS** | `backend/tests/test_v10_cognitive_maintenance.py` — 21 passed |
-| Proposition-aware contradiction matrix | **PASS** | Canonical proposition identity, correction/supersession, scope/time/modality/uncertainty, adversarial matrix |
+| V10 focused services/domain/persistence | **PASS** | `backend/tests/test_v10_cognitive_maintenance.py` — 23 passed |
+| Proposition-aware contradiction matrix | **PASS** | Canonical proposition identity; pair-conditioned correction/supersession, same-type value evolution, temporary-exception metadata only on matching opposite-polarity pairs, scope/time/modality/uncertainty, adversarial matrix |
 | Evidence-backed Cognitive Debt | **PARTIAL** | Stale assumptions, unvalidated predictions, stale world dependencies, unresolved decisions, and missing outcomes; unsupported categories documented as NOT IMPLEMENTED |
 | V10 additive schema and V9 reopen | **PASS** | Additive migration; V9-shaped reopen preserves legacy rows and recreates V10 tables |
 | V10 EventBus lifecycle | **PASS** | Typed canonical events, tenant payloads, correlation IDs, finding-only contradiction resolution |
 | V10 authorization/isolation | **PASS** | Direct-ID, user substitution, proposal/confirmation, canonical V9 lookup and cross-scope coverage |
 | V10 portability export/validate/restore | **PASS** | Maintenance schema marker, tenant/reference checks, duplicate/scope safety, actual restore coverage |
-| Full backend suite | **PASS** | 985 passed, 10 skipped, 13 deselected, 4 existing marker warnings; exit 0 |
+| Full backend suite | **PASS** | 987 passed, 10 skipped, 13 deselected, 4 existing marker warnings; exit 0 |
 | Frontend typecheck/lint/build | **PASS** | `npm ci`, typecheck, lint, production build; 8/8 static pages (no frontend changes in hardening) |
 | Browser verification | **NOT VERIFIED** | Playwright Chromium cannot launch because sandbox lacks `libnspr4.so` |
 | V10 real-model status | **NOT CONNECTED** | Deterministic authority path only; no real model evidence claimed |

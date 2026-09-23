@@ -54,7 +54,7 @@ def _fingerprint(*parts: Any) -> str:
 
 _PREDICATE_ALIASES = {
     "like": "prefer", "love": "prefer", "enjoy": "prefer", "dislike": "prefer",
-    "hate": "prefer", "prefer": "prefer",
+    "hate": "prefer", "avoid": "prefer", "prefer": "prefer",
     "want": "desire", "desire": "desire", "seek": "desire", "choose": "desire",
     "value": "value", "care about": "value",
     "depend": "depend", "depends": "depend",
@@ -157,7 +157,7 @@ def _proposition(obj: dict[str, Any]) -> dict[str, Any] | None:
     match = re.match(
         r"^(?:i|user)\s+(?:(don't|do not|never|cannot|can't|avoid)\s+)?"
         r"(care about|like|love|enjoy|dislike|prefer|value|want|desire|seek|need|"
-        r"hate|save|saved|spend|spent|spending|work|choose)\s+(.+)$",
+        r"hate|avoid|save|saved|spend|spent|spending|work|choose)\s+(.+)$",
         lower)
     if match:
         neg, pred, value_text = match.groups()
@@ -513,12 +513,16 @@ class ContradictionEngine(V10ScopedService):
             return {"classification": ContradictionClass.SUPERSESSION.value,
                     "reason": "One canonical object explicitly supersedes the other.", "confidence": 1.0}
         left_meta, right_meta = left.get("metadata") or {}, right.get("metadata") or {}
-        if (left_meta.get("corrects_object_id") == right.get("id") or
-                right_meta.get("corrects_object_id") == left.get("id") or
-                (left.get("type") == "CORRECTION" and left_meta.get("corrects_object_id")) or
-                (right.get("type") == "CORRECTION" and right_meta.get("corrects_object_id"))):
+        correction_targets_pair = (
+            (left.get("type") == "CORRECTION" and
+             left_meta.get("corrects_object_id") == right.get("id")) or
+            (right.get("type") == "CORRECTION" and
+             right_meta.get("corrects_object_id") == left.get("id")) or
+            left_meta.get("supersedes_object_id") == right.get("id") or
+            right_meta.get("supersedes_object_id") == left.get("id"))
+        if correction_targets_pair:
             return {"classification": ContradictionClass.SUPERSESSION.value,
-                    "reason": "An explicit canonical correction targets the earlier object.",
+                    "reason": "An explicit canonical correction or supersession targets the compared object.",
                     "confidence": 0.99}
         temporal = _temporal_relation(left, right)
         if temporal:
@@ -531,23 +535,29 @@ class ContradictionEngine(V10ScopedService):
                     "scope_analysis": {"left": ls, "right": rs}}
 
         evolution_types = {"PREFERENCE", "VALUE", "GOAL", "PRINCIPLE", "BOUNDARY"}
-        if ((left.get("type") in evolution_types or right.get("type") in evolution_types) and
+        if (left.get("type") == right.get("type") and
+                left.get("type") in evolution_types and
                 (_explicit_evolution(left) or _explicit_evolution(right))):
             return {"classification": ContradictionClass.VALUE_EVOLUTION.value,
                     "reason": "A canonical statement explicitly records a change in priorities or preference.",
                     "confidence": 0.96}
-        if ((left_meta.get("temporary_exception") is True) or
-                (right_meta.get("temporary_exception") is True)):
-            return {"classification": ContradictionClass.TEMPORARY_EXCEPTION.value,
-                    "reason": "Canonical metadata records a bounded exception rather than a durable reversal.",
-                    "confidence": 0.9}
-
+        temporary_exception = (
+            left_meta.get("temporary_exception") is True or
+            right_meta.get("temporary_exception") is True)
         lp, rp = _proposition(left), _proposition(right)
         if lp is None or rp is None:
             return {"classification": ContradictionClass.INSUFFICIENT_CONTEXT.value,
                     "reason": "A subject, predicate, object, or scope could not be established deterministically.",
                     "confidence": 0.2,
                     "proposition_analysis": {"left": lp, "right": rp}}
+        if (temporary_exception and
+                lp["subject"] == rp["subject"] and
+                lp["predicate"] == rp["predicate"] and
+                lp["object"] == rp["object"] and
+                lp["polarity"] != rp["polarity"]):
+            return {"classification": ContradictionClass.TEMPORARY_EXCEPTION.value,
+                    "reason": "Canonical metadata marks an otherwise matching polarity change as a bounded exception.",
+                    "confidence": 0.9, "proposition_analysis": {"left": lp, "right": rp}}
         if lp["uncertain"] or rp["uncertain"]:
             return {"classification": ContradictionClass.INSUFFICIENT_CONTEXT.value,
                     "reason": "At least one proposition is tentative, hypothetical, or otherwise uncertain.",
@@ -1134,8 +1144,6 @@ class CognitiveHealthService(V10ScopedService):
         predictions = self.db.query(
             f"SELECT p.* FROM predictions p WHERE {prediction_clause}",
             self._canonical_scope_params(user_id))
-        active_predictions = [p for p in predictions if p["status"] == "open"]
-        resolved_predictions = [p for p in predictions if p["status"] in {"correct", "incorrect", "expired", "cancelled"}]
         evaluated_predictions = [p for p in predictions if p["status"] in {"correct", "incorrect"}]
         explicit_evidence = sum(1 for o in objects if o.get("provenance") and (o.get("evidence") or o.get("provenance") in {"USER_STATED", "USER_CONFIRMED", "SYSTEM_OBSERVED"}))
         base = max(1, len(objects))
@@ -1148,9 +1156,10 @@ class CognitiveHealthService(V10ScopedService):
                 f"{explicit_evidence} of {len(objects)} active semantic object(s) have explicit provenance/evidence.", [o["id"] for o in objects if o.get("evidence")]),
             "COMPLETENESS": self._dimension(1.0 - min(1.0, len(unknowns) / max(1, len(objects))),
                 f"{len(unknowns)} material unknown(s) remain open.", [u["id"] for u in unknowns]),
-            "PREDICTIVE_TRACKING": self._dimension((len(resolved_predictions) / len(predictions)) if predictions else None,
-                (f"{len(resolved_predictions)} of {len(predictions)} prediction(s) have an observed status." if predictions else "No prediction records exist."),
-                [p["id"] for p in active_predictions]),
+            "PREDICTIVE_TRACKING": self._dimension((len(evaluated_predictions) / len(predictions)) if predictions else None,
+                (f"{len(evaluated_predictions)} of {len(predictions)} prediction(s) have an explicitly evaluated outcome; expired and cancelled records are not counted as observed."
+                 if predictions else "No prediction records exist."),
+                [p["id"] for p in predictions if p["status"] not in {"correct", "incorrect"}]),
             "DECISION_CURRENCY": self._dimension(1.0 - min(1.0, sum(1 for d in debts if d["debt_type"] in {DebtType.UNRESOLVED_DECISION.value, DebtType.OVERDUE_COMMITMENT.value}) / max(1, len(debts) + 1)),
                 "Derived from unresolved decision and overdue commitment debt.", [d["id"] for d in debts]),
             "MODEL_STABILITY": self._dimension(
