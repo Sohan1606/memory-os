@@ -1,6 +1,49 @@
-# MEMORY//OS V9 / V9.0.1 verification
+# MEMORY//OS V9 / V9.0.1 / V9.0.2 verification
 
 Verified 2026-09-22 in the release workspace.
+
+## V9.0.2 semantic response hardening
+
+Verification categories are intentionally separate:
+
+1. **Deterministic semantics — PASS.** Nuanced interpretation and every unsafe
+   model response fall back through the deterministic compiler.
+2. **Simulated model boundary — PASS.** Tests exercise clean JSON, complete JSON
+   fences, documented single content blocks, the `langchain-ollama`
+   `include_raw` wrapper, strict schema failures and all semantic policy gates.
+   These tests do not count as a real-model pass.
+3. **Real Ollama — NOT VERIFIED in this release workspace.** Ollama 0.34.2 and
+   the official `llama3.2:3b` model were installed and the API/model manifest
+   were reachable. The sandbox has 1.9 GiB RAM; the 2.0 GiB model process was
+   killed while loading. The real test therefore has no PASS claim here.
+
+```bash
+PYTHONPATH=. pytest -q tests/test_v902_semantic_hardening.py \
+  tests/test_v901_hardening.py tests/test_v901_real_model.py tests/test_v9_*.py
+# 66 passed, 1 skipped
+
+PYTHONPATH=. pytest -q
+# 964 passed, 23 skipped
+
+npm ci && npm run typecheck && npm run lint && npm run build
+# all exit 0; 0 npm vulnerabilities; 8/8 pages
+
+python tests/v9_browser_qa.py
+# 16 passed, 0 failed
+python tests/v851_browser_qa.py
+# 12 passed, 0 failed
+```
+
+The real gate remains:
+
+```bash
+cd backend
+python -m pytest -m slow tests/test_v901_real_model.py -v
+```
+
+It must report `semantic_mode == "MODEL"`, `compiler == "model-assisted"`, a
+`MODEL_HYPOTHESIS` candidate with confidence at most `0.85`, no `FACT`, and a
+`FUTURE` temporal scope. A skip or deterministic fallback is **NOT VERIFIED**.
 
 ## V9.0.1 hardening results
 

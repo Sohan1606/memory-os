@@ -7,7 +7,7 @@ cd backend
 python -m pytest -q
 ```
 
-**V9.0.1 verified run (2026-09-22): 944 passed, 23 skipped** (Python 3.13; exit 0).
+**V9.0.2 verified run (2026-09-22): 964 passed, 23 skipped** (Python 3.13; exit 0).
 The skips are Ollama-dependent real-model tests and are reported as NOT
 CONNECTED / NOT VERIFIED, not as passes. See [V9-VERIFICATION.md](V9-VERIFICATION.md).
 

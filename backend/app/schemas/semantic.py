@@ -94,7 +94,9 @@ class SemanticCandidate(SemanticModel):
     confidence: float = Field(ge=0.0, le=1.0)
     provenance: Provenance
     source: str = Field(min_length=1, max_length=120)
-    temporal_scope: TemporalScope = Field(default_factory=TemporalScope)
+    # Model proposals must state temporal interpretation explicitly. This keeps
+    # omission from silently becoming UNSPECIFIED at the trust boundary.
+    temporal_scope: TemporalScope
     status: str = Field(default="PROPOSED", max_length=40)
     evidence: list[EvidenceRef] = Field(default_factory=list, max_length=50)
     relationships: list[RelationshipCandidate] = Field(default_factory=list, max_length=50)

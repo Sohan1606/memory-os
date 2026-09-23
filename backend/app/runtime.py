@@ -177,7 +177,7 @@ class Runtime:
             # `version` is the established V8.2 API-contract marker retained for
             # backwards compatibility; `release` identifies the running slice.
             "version": "8.2",
-            "release": "9.0.1",
+            "release": "9.0.2",
             "semantic": {
                 "schema": "9.0",
                 "object_types": 26,

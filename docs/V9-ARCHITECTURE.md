@@ -1,5 +1,23 @@
 # MEMORY//OS V9 — Conversational Cognitive OS Architecture
 
+## V9.0.2 local-model response boundary
+
+The V9.0.2 path keeps the existing provider, capability router, model lock,
+Meaning Compiler and Meaning Kernel. When the installed `langchain-ollama`
+model exposes `with_structured_output`, semantic extraction uses Ollama's native
+JSON-schema mode with `SemanticRepresentation` and `include_raw=True`.
+
+The final boundary remains `MeaningCompiler.validate_model_output()`. It accepts
+only a direct object/string, a complete JSON fence, one documented text/JSON
+content block, or the documented LangChain structured wrapper. It never scans
+prose for an embedded object. All normalized payloads still pass strict
+Pydantic validation and semantic policy before deterministic materiality and
+the Meaning Kernel.
+
+Missing temporal scope, empty candidates, input/content mismatch, invented
+paraphrases, wrong source/provenance, more than three candidates, confidence
+above `0.85`, or `FACT` proposals fail closed to deterministic semantics.
+
 ## V9.0.1 live surface and semantic extraction
 
 ### Live surface
