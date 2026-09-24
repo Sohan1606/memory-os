@@ -91,8 +91,16 @@ def test_real_end_to_end_tool_call_loop(real_runtime):
 
     # A real tool decision was made by the model.
     assert "TOOL_DECISION" in kinds, kinds
-    # The model was invoked again after the tool result came back.
-    assert kinds.count("MODEL_CALL") >= 2, kinds
+    # The first real model invocation is MODEL_CALL. Every real model
+    # invocation after tool execution is recorded as MODEL_REVISION so the
+    # trace can distinguish initial generation from post-tool reconsideration.
+    model_invocations = (
+        kinds.count("MODEL_CALL") +
+        kinds.count("MODEL_REVISION")
+    )
+    assert "MODEL_CALL" in kinds, kinds
+    assert "MODEL_REVISION" in kinds, kinds
+    assert model_invocations >= 2, kinds
     # Raw tool-call syntax must never leak to the user.
     assert "<tool_call>" not in answer
     assert answer.strip()
