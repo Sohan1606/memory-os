@@ -55,6 +55,28 @@ EXPLICIT_AUDIT_REQUEST = "EXPLICIT_AUDIT_REQUEST"
 # depth-1 re-audit; the coordinator refuses to audit it again (depth cap).
 REAUDIT_SUFFIX = "::reaudit1"
 
+# V10.1 fix: the bounded post-confirmation re-audit verifies the families the
+# confirmed mutation could actually have changed — deterministically derived
+# from the proposal type, never a blind run of every family. A confirmed
+# RECORD_OUTCOME resolves a prediction, so its consequences live in
+# model_errors (an incorrect prediction becomes a classified model error) and
+# debt (the UNVALIDATED_PREDICTION debt should now be resolvable). Types that
+# mutate personal state include drift so the state transition is verified.
+REAUDIT_FAMILY_MAP: dict[str, tuple[str, ...]] = {
+    "RECORD_OUTCOME": ("model_errors", "debt"),
+    "CONFIRM_UNKNOWN": ("unknowns",),
+    "CLOSE_DEBT": ("debt",),
+    "RESOLVE_CONTRADICTION": ("contradictions", "unknowns"),
+    "RETIRE_ASSUMPTION": ("debt", "contradictions", "drift"),
+    "SUPERSEDE_OBJECT": ("debt", "contradictions", "drift"),
+    "WEAKEN_BELIEF": ("debt", "contradictions", "drift"),
+    "RESCOPE_OBJECT": ("contradictions", "drift"),
+    "REJECT_HYPOTHESIS": ("contradictions", "unknowns"),
+    "RECHECK_WORLD_DEPENDENCY": ("debt",),
+    "RECONSTRUCT_DECISION": ("debt",),
+}
+REAUDIT_FAMILY_DEFAULT: tuple[str, ...] = ("debt", "contradictions", "unknowns")
+
 # Cognitive object types whose creation or questioning makes the personal
 # model materially involved in this turn (directive §2.A).
 _STATE_TYPES = frozenset({
@@ -387,7 +409,19 @@ class MaintenanceRuntimeCoordinator:
             unknown_matches = self._match_unknown_evidence(
                 user_id, meaning, relevance, correlation_id=correlation_id)
             findings = summarize_findings(audit, prediction_matches, unknown_matches)
-            open_proposals = [p for p in (audit.get("proposals") or [])
+            # V10.1 fix: every proposal created inside this bounded turn must
+            # be surfaced — audit proposals AND matcher proposals (prediction
+            # outcome / unknown evidence). The matchers return the exact rows
+            # the canonical MaintenanceProposalService created (or deduplicated
+            # to), so this stays correlation-scoped: no blind table scan, no
+            # second proposal store. Dedup by canonical proposal id.
+            merged: dict[str, dict[str, Any]] = {}
+            for p in list(audit.get("proposals") or []) + [
+                    m.get("proposal")
+                    for m in (prediction_matches + unknown_matches)]:
+                if p and p.get("id"):
+                    merged.setdefault(str(p["id"]), p)
+            open_proposals = [p for p in merged.values()
                               if p.get("status") in ("PROPOSED", "DEFERRED")]
             context["audit"] = {
                 "correlation_id": audit.get("correlation_id"),
@@ -461,7 +495,7 @@ class MaintenanceRuntimeCoordinator:
                 if (pred_prop["subject"] == outcome_prop["subject"]
                         and pred_prop["predicate"] == outcome_prop["predicate"]):
                     try:
-                        self.proposals.propose(
+                        proposal = self.proposals.propose(
                             user_id,
                             proposal_type=ProposalType.RECORD_OUTCOME.value,
                             target_object_ids=[row["id"]],
@@ -480,7 +514,8 @@ class MaintenanceRuntimeCoordinator:
                         log.info("Prediction-outcome proposal skipped: %s", exc)
                         continue
                     matches.append({"prediction_id": row["id"],
-                                    "outcome_object_id": outcome["id"]})
+                                    "outcome_object_id": outcome["id"],
+                                    "proposal": proposal})
         return matches
 
     # ------------------------------------------------------ unknown evidence
@@ -517,7 +552,7 @@ class MaintenanceRuntimeCoordinator:
                        and p["predicate"] == ev_prop["predicate"]
                        for p in related_props):
                     try:
-                        self.proposals.propose(
+                        proposal = self.proposals.propose(
                             user_id,
                             proposal_type=ProposalType.CONFIRM_UNKNOWN.value,
                             target_object_ids=[unknown["id"]],
@@ -534,7 +569,8 @@ class MaintenanceRuntimeCoordinator:
                         log.info("Unknown-resolution proposal skipped: %s", exc)
                         continue
                     matches.append({"unknown_id": unknown["id"],
-                                    "evidence_object_id": evidence["id"]})
+                                    "evidence_object_id": evidence["id"],
+                                    "proposal": proposal})
                     break
         return matches
 
@@ -556,6 +592,10 @@ class MaintenanceRuntimeCoordinator:
         if base.endswith(REAUDIT_SUFFIX):
             return None  # depth cap: never re-audit a re-audit
         reaudit_cid = f"{base}{REAUDIT_SUFFIX}"
+        # V10.1 fix: re-audit the families the confirmed mutation could have
+        # changed — deterministic per proposal type, never all families blindly.
+        families = list(REAUDIT_FAMILY_MAP.get(
+            str(proposal.get("proposal_type")), REAUDIT_FAMILY_DEFAULT))
         # Verify the canonical transition actually happened before re-auditing.
         current_version = self.personal_state.current(user_id).get("version")
         self.bus.emit(
@@ -564,22 +604,27 @@ class MaintenanceRuntimeCoordinator:
             subject_kind="maintenance_proposal", subject_id=proposal["id"],
             correlation_id=reaudit_cid,
             payload={"base_correlation_id": base, "depth": 1,
+                     "proposal_type": proposal.get("proposal_type"),
+                     "families": families,
                      "personal_state_version": current_version})
         thread_id = "maintenance"
         self._stage(user_id, thread_id, reaudit_cid, "RE_AUDITING_MODEL", "ACTIVE")
         try:
             audit = self.self_maintenance.audit(
                 user_id, correlation_id=reaudit_cid,
-                families=["debt", "contradictions", "unknowns"],
+                families=families,
                 lifecycle=self.lifecycle, thread_id=thread_id)
             self._stage(user_id, thread_id, reaudit_cid, "RE_AUDITING_MODEL",
                         "COMPLETED")
             result = {"correlation_id": reaudit_cid, "status": audit.get("status"),
                       "depth": 1, "personal_state_version": current_version,
+                      "families": families,
                       "counts": {
                           "debt": len(audit.get("debt") or []),
                           "contradictions": len(audit.get("contradictions") or []),
-                          "unknowns": len(audit.get("unknowns") or [])}}
+                          "unknowns": len(audit.get("unknowns") or []),
+                          "model_errors": len(audit.get("model_errors") or []),
+                          "drift": len(audit.get("drift") or [])}}
             self.bus.emit(
                 user_id, "maintenance.reaudit_completed",
                 "Completed the bounded post-confirmation re-audit.",

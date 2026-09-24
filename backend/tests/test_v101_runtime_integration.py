@@ -616,3 +616,196 @@ def test_confirm_endpoint_returns_bounded_reaudit():
     finally:
         main_module.app.dependency_overrides.pop(main_module.rt, None)
         rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+# =====================================================================
+# PR #14 regression tests: proposal visibility, canonical RECORD_OUTCOME
+# application, honest insufficiency, and trigger-aware re-audit.
+# =====================================================================
+def test_record_outcome_proposal_is_visible_in_turn_context():
+    """Fix 1A: a matcher-created RECORD_OUTCOME proposal must be surfaced
+    in the same turn's maintenance context, with WAITING_FOR_CONFIRMATION."""
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        rt.cognition.predictions.create(user, "I save money each month",
+                                        confidence=0.8)
+        trace = rt.cognition.process_turn(
+            user, "The outcome was I saved money this month.")
+        m = trace["maintenance"]
+        assert m["relevance"]["relevant"] is True
+        assert "PREDICTION_OUTCOME" in m["relevance"]["trigger_kinds"]
+        record_outcome = [p for p in m["proposals"]
+                          if p["proposal_type"] == "RECORD_OUTCOME"]
+        assert record_outcome, (
+            "The RECORD_OUTCOME proposal created during this turn must appear "
+            "in the turn's maintenance.proposals — not silently only in the DB.")
+        assert record_outcome[0]["status"] == "PROPOSED"
+        assert m["status"] == WAITING_FOR_CONFIRMATION
+        # The surfaced proposal is the same canonical row the service stores.
+        stored = rt.cognition.maintenance_proposals.get(
+            user, record_outcome[0]["id"])
+        assert stored is not None and stored["status"] == "PROPOSED"
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_confirm_unknown_proposal_is_visible_in_turn_context():
+    """Fix 1B: a matcher-created CONFIRM_UNKNOWN proposal must be surfaced
+    in the same turn's maintenance context."""
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        anchor = obj(rt, user, CognitiveType.BELIEF, "I like the mountain office")
+        rt.cognition.unknowns.identify(
+            user, what_unknown="Do I like the mountain office?",
+            why_it_matters="Location preference affects planning.",
+            missing_evidence=[{"kind": "OBSERVATION"}],
+            resolution_path="Wait for a direct statement.",
+            relevant_object_ids=[anchor["id"]])
+        trace = rt.cognition.process_turn(
+            user, "I noticed that I like the mountain office.")
+        m = trace["maintenance"]
+        confirm_unknown = [p for p in m["proposals"]
+                           if p["proposal_type"] == "CONFIRM_UNKNOWN"]
+        assert confirm_unknown and confirm_unknown[0]["status"] == "PROPOSED"
+        assert m["status"] == WAITING_FOR_CONFIRMATION
+        # Still confirmation-gated: nothing auto-resolved.
+        assert len(rt.cognition.unknowns.list(user, status="OPEN")) == 1
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_confirmed_record_outcome_resolves_prediction_canonically():
+    """Fix 2A: confirming RECORD_OUTCOME applies through PredictionEngine
+    .observe() — the prediction is resolved canonically with full history."""
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        pred = rt.cognition.predictions.create(
+            user, "I save money each month", confidence=0.8)
+        trace = rt.cognition.process_turn(
+            user, "The outcome was I saved money this month, "
+                  "so the prediction came true.")
+        m = trace["maintenance"]
+        record_outcome = [p for p in m["proposals"]
+                          if p["proposal_type"] == "RECORD_OUTCOME"]
+        assert record_outcome and m["status"] == WAITING_FOR_CONFIRMATION
+        result = rt.cognition.maintenance_proposals.confirm(
+            user, record_outcome[0]["id"], reason="Yes, record the outcome.")
+        assert result["status"] == "APPLIED"
+        # The canonical prediction row was resolved by the engine itself.
+        row = rt.db.query_one("SELECT * FROM predictions WHERE id=?",
+                              (pred["id"],))
+        assert row["status"] == "correct"
+        assert row["outcome"]  # the real observation text, not a fabrication
+        assert row["evaluated_at"]
+        # Canonical evaluation events exist (engine-emitted, not duplicated).
+        events = [e.type for e in rt.cognition.bus.recent(user, limit=500)]
+        assert "prediction.evaluated" in events
+        assert "prediction.correct" in events
+        # No duplicate outcome store: the proposal row carries no verdict.
+        stored = rt.cognition.maintenance_proposals.get(
+            user, record_outcome[0]["id"])
+        assert stored["status"] == "APPLIED"
+        assert "outcome" not in (stored.get("proposed_state") or {})
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_record_outcome_with_insufficient_evidence_is_blocked_not_applied():
+    """Fix 2B: an observation without an explicit resolution signal must NOT
+    produce a fabricated verdict; the prediction stays open and the proposal
+    is honestly BLOCKED — never falsely APPLIED."""
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        pred = rt.cognition.predictions.create(
+            user, "I save money each month", confidence=0.8)
+        trace = rt.cognition.process_turn(
+            user, "The outcome was I saved money this month.")
+        m = trace["maintenance"]
+        record_outcome = [p for p in m["proposals"]
+                          if p["proposal_type"] == "RECORD_OUTCOME"]
+        assert record_outcome and m["status"] == WAITING_FOR_CONFIRMATION
+        result = rt.cognition.maintenance_proposals.confirm(
+            user, record_outcome[0]["id"], reason="Record it.")
+        assert result["status"] == "BLOCKED"
+        assert result["status"] != "APPLIED"
+        row = rt.db.query_one("SELECT * FROM predictions WHERE id=?",
+                              (pred["id"],))
+        assert row["status"] == "open"      # prediction remains open
+        assert row["outcome"] is None       # no invented verdict
+        assert row["evaluated_at"] is None
+        events = [e.type for e in rt.cognition.bus.recent(user, limit=500)]
+        assert "prediction.correct" not in events
+        assert "prediction.incorrect" not in events
+        assert "maintenance.blocked" in events
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_record_outcome_reaudit_targets_model_errors_family():
+    """Fix 3: the bounded re-audit after a confirmed RECORD_OUTCOME must run
+    the trigger-derived families (model_errors, debt) — exactly one re-audit,
+    no depth-2."""
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        rt.cognition.predictions.create(
+            user, "I save money each month", confidence=0.8)
+        trace = rt.cognition.process_turn(
+            user, "The outcome was I saved money this month, "
+                  "so the prediction came true.")
+        record_outcome = [p for p in trace["maintenance"]["proposals"]
+                          if p["proposal_type"] == "RECORD_OUTCOME"]
+        applied = rt.cognition.maintenance_proposals.confirm(
+            user, record_outcome[0]["id"], reason="Record it.")
+        assert applied["status"] == "APPLIED"
+        reaudit = rt.cognition.maintenance_runtime.reaudit_after_confirmation(
+            user, applied)
+        assert reaudit is not None
+        assert reaudit["depth"] == 1
+        assert reaudit["correlation_id"].endswith(REAUDIT_SUFFIX)
+        assert set(reaudit["families"]) == {"model_errors", "debt"}, (
+            "A confirmed prediction outcome must re-audit the model_errors "
+            "and debt families — not a blind hard-coded family list.")
+        # Exactly one re-audit run row; a second attempt at depth 2 is refused.
+        runs = rt.db.query(
+            "SELECT correlation_id FROM maintenance_runs "
+            "WHERE user_id=? AND correlation_id LIKE ?",
+            (user, f"%{REAUDIT_SUFFIX}"))
+        assert len(runs) == 1
+        second = rt.cognition.maintenance_runtime.reaudit_after_confirmation(
+            user, {**applied, "correlation_id": reaudit["correlation_id"]})
+        assert second is None
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)
+
+
+def test_record_outcome_flow_causes_no_recursive_maintenance_storm():
+    """The full visibility → confirm → apply → re-audit chain must produce a
+    bounded number of audits: one turn audit plus one re-audit, no recursion
+    triggered by the maintenance/prediction events themselves."""
+    rt, root = make_runtime()
+    try:
+        user = rt.settings.demo_user_id
+        rt.cognition.predictions.create(
+            user, "I save money each month", confidence=0.8)
+        trace = rt.cognition.process_turn(
+            user, "The outcome was I saved money this month, "
+                  "so the prediction came true.")
+        record_outcome = [p for p in trace["maintenance"]["proposals"]
+                          if p["proposal_type"] == "RECORD_OUTCOME"]
+        applied = rt.cognition.maintenance_proposals.confirm(
+            user, record_outcome[0]["id"], reason="Record it.")
+        rt.cognition.maintenance_runtime.reaudit_after_confirmation(
+            user, applied)
+        runs = rt.db.query(
+            "SELECT correlation_id FROM maintenance_runs WHERE user_id=?",
+            (user,))
+        assert len(runs) == 2  # exactly: the turn audit + the single re-audit
+        assert sum(1 for r in runs
+                   if r["correlation_id"].endswith(REAUDIT_SUFFIX)) == 1
+    finally:
+        rt.close(); shutil.rmtree(root, ignore_errors=True)

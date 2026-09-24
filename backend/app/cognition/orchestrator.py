@@ -190,7 +190,8 @@ class Cognition:
             db, self.bus, self.personal_state, tenant_id=tenant_id)
         self.maintenance_proposals = MaintenanceProposalService(
             db, self.bus, self.personal_state, self.cognitive_debt,
-            self.contradictions, self.unknowns, self.autonomy, tenant_id=tenant_id)
+            self.contradictions, self.unknowns, self.autonomy,
+            predictions=self.predictions, tenant_id=tenant_id)
         self.cognitive_health = CognitiveHealthService(
             db, self.bus, self.personal_state, self.cognitive_debt,
             self.contradictions, self.unknowns, self.model_errors,

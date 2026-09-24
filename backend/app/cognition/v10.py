@@ -937,13 +937,17 @@ class MaintenanceProposalService(V10ScopedService):
     """Bounded proposals; confirmation and application are separate steps."""
 
     def __init__(self, db, bus, personal_state, debt, contradictions, unknowns,
-                 autonomy, *, tenant_id: str = "local"):
+                 autonomy, *, predictions=None, tenant_id: str = "local"):
         super().__init__(db, bus, tenant_id=tenant_id)
         self.personal_state = personal_state
         self.debt = debt
         self.contradictions = contradictions
         self.unknowns = unknowns
         self.autonomy = autonomy
+        # V10.1 fix: the canonical PredictionEngine is the single authority
+        # for resolving predictions. Optional for backward compatibility —
+        # without it RECORD_OUTCOME remains honestly BLOCKED.
+        self.predictions = predictions
 
     def get(self, user_id: str, proposal_id: str) -> dict[str, Any] | None:
         row = self.db.query_one(
@@ -1105,6 +1109,14 @@ class MaintenanceProposalService(V10ScopedService):
             self.unknowns.resolve(user_id, targets[0],
                                   reason=reason or "User supplied confirming evidence.",
                                   correlation_id=correlation_id)
+        elif typ == ProposalType.RECORD_OUTCOME.value:
+            # V10.1: apply through the canonical PredictionEngine only. The
+            # user's confirmation authorizes applying the referenced evidence;
+            # it does NOT authorize inventing a verdict the engine cannot
+            # support. An unresolvable observation raises and the proposal is
+            # honestly BLOCKED — never falsely APPLIED.
+            self._apply_record_outcome(user_id, item, reason=reason,
+                                       correlation_id=correlation_id)
         elif typ == ProposalType.DEFER_MAINTENANCE.value:
             return
         else:
@@ -1118,6 +1130,89 @@ class MaintenanceProposalService(V10ScopedService):
         self._emit(user_id, "maintenance.applied", "Applied a confirmed maintenance proposal.",
                    subject_kind="maintenance_proposal", subject_id=item["id"],
                    correlation_id=correlation_id, payload={"proposal_type": typ, "targets": targets})
+
+    def _apply_record_outcome(self, user_id: str, item: dict[str, Any], *,
+                              reason: str | None, correlation_id: str | None) -> None:
+        """Record a confirmed prediction outcome through the canonical engine.
+
+        Authority rules:
+        - PredictionEngine.observe() is the ONLY evaluator; no verdict logic
+          is duplicated here and no outcome is stored in maintenance rows.
+        - The observation must be a real canonical cognitive object named in
+          the proposal's evidence references.
+        - If observe() reports the observation does not resolve the
+          prediction (no explicit resolution signal), this raises ValueError:
+          the prediction stays open, no correct/incorrect result is
+          fabricated, and the proposal lands in BLOCKED — not APPLIED.
+        """
+        if self.predictions is None:
+            raise ValueError("The canonical prediction engine is not attached; "
+                             "RECORD_OUTCOME cannot be applied.")
+        targets = item["target_object_ids"]
+        refs = item.get("evidence_refs") or []
+
+        # 1. Identify the target prediction, scoped through the canonical
+        # user+tenant boundary exactly like propose() validated it.
+        prediction_id: str | None = None
+        candidates = [str(r["id"]) for r in refs
+                      if isinstance(r, dict) and r.get("kind") == "prediction" and r.get("id")]
+        candidates += [str(t) for t in targets]
+        clause = self._canonical_scope("p")
+        for candidate in candidates:
+            if self.db.query_one(
+                    f"SELECT 1 FROM predictions p WHERE p.id=? AND {clause}",
+                    (candidate,) + self._canonical_scope_params(user_id)):
+                prediction_id = candidate
+                break
+        if prediction_id is None:
+            raise ValueError("RECORD_OUTCOME has no canonical prediction target "
+                             "in the verified user and tenant scope.")
+
+        # 2. Identify the actual canonical observation object from the
+        # proposal's evidence references. Without one there is no evidence to
+        # apply — the proposal is blocked rather than silently applied.
+        observation = None
+        for ref in refs:
+            if isinstance(ref, dict) and ref.get("kind") == "cognitive_object" and ref.get("id"):
+                obj = self.personal_state.get(user_id, str(ref["id"]))
+                if obj:
+                    observation = obj
+                    break
+        if observation is None:
+            raise ValueError("RECORD_OUTCOME requires a canonical observation "
+                             "object in its evidence references; none exists yet. "
+                             "Provide the observation first.")
+
+        # 3/4. Pass the real observation text into the canonical engine. The
+        # engine's explicit resolution-signal rules stay authoritative; no
+        # `supports` override is passed, so confirmation cannot force a verdict.
+        result = self.predictions.observe(
+            user_id, prediction_id, str(observation.get("content") or ""),
+            evidence=[observation["id"]], correlation_id=correlation_id)
+        if result is None:
+            raise ValueError("The prediction is no longer open; there is "
+                             "nothing left to record against it.")
+        if not result.get("resolved"):
+            # 8/9. Honest insufficiency: prediction remains open, proposal
+            # becomes BLOCKED via the confirm() boundary, nothing is invented.
+            raise ValueError(result.get("reason") or (
+                "INSUFFICIENT EVIDENCE — the observation does not clearly "
+                "confirm or refute this prediction, so it remains open."))
+
+        # The canonical evaluation succeeded (events and history were emitted
+        # by the engine itself). Resolve any linked prediction-debt targets
+        # through the existing debt lifecycle.
+        for target in targets:
+            debt = self.debt.get(user_id, target)
+            if debt and debt.get("debt_type") == DebtType.UNVALIDATED_PREDICTION.value \
+                    and debt["status"] != DebtStatus.RESOLVED.value:
+                if debt["status"] == DebtStatus.OPEN.value:
+                    self.debt.transition(user_id, debt["id"], DebtStatus.ACKNOWLEDGED.value,
+                                         reason=reason or "Outcome recorded through the canonical prediction engine.",
+                                         correlation_id=correlation_id)
+                self.debt.transition(user_id, debt["id"], DebtStatus.RESOLVED.value,
+                                     reason=reason or "Outcome recorded through the canonical prediction engine.",
+                                     correlation_id=correlation_id)
 
 
 class CognitiveHealthService(V10ScopedService):
