@@ -304,6 +304,40 @@ function Understanding({ cognition }: { cognition: TurnCognition }) {
           Why now: {cognition.attention.why_now}
         </p>
       )}
+      <MaintenanceNotes maintenance={cognition.maintenance} />
     </details>
+  );
+}
+
+/**
+ * V10.1: canonical maintenance findings for this turn. Rendered ONLY when
+ * real maintenance produced real findings or proposals — an irrelevant turn
+ * shows nothing, and no stage or progress is ever invented client-side.
+ */
+function MaintenanceNotes({ maintenance }: { maintenance?: TurnCognition["maintenance"] }) {
+  if (!maintenance || !maintenance.relevant) return null;
+  const hasContent = maintenance.findings.length > 0 || maintenance.proposals.length > 0
+    || maintenance.status === "MAINTENANCE_FAILED";
+  if (!hasContent) return null;
+  return (
+    <div style={{ marginTop: "0.5rem", borderTop: "1px solid var(--line)", paddingTop: "0.5rem" }}>
+      {maintenance.status === "MAINTENANCE_FAILED" && (
+        <p className="body" style={{ margin: 0, fontSize: "0.78rem", color: "#e8a07a" }}>
+          Personal-model maintenance could not complete for this turn.
+        </p>
+      )}
+      {maintenance.findings.map((finding, index) => (
+        <p className="body" key={finding.finding_id ?? index}
+           style={{ margin: index ? "0.35rem 0 0" : 0, fontSize: "0.78rem", color: "var(--silver)" }}>
+          {finding.summary}
+        </p>
+      ))}
+      {maintenance.proposals.length > 0 && (
+        <p className="body" style={{ margin: "0.4rem 0 0", fontSize: "0.76rem", color: "var(--muted)" }}>
+          {maintenance.proposals.length} maintenance proposal{maintenance.proposals.length === 1 ? "" : "s"} await
+          your explicit confirmation — nothing has been changed.
+        </p>
+      )}
+    </div>
   );
 }

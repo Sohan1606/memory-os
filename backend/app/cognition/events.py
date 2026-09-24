@@ -217,6 +217,16 @@ V10_MAINTENANCE = (
     "cognitive_health.updated",
 )
 
+# V10.1 runtime integration. Only genuinely new observability points: the
+# deterministic relevance verdict for a turn, and the bounded depth-1
+# re-audit lifecycle. Audit start/completion and proposal presentation
+# already exist above (cognitive_model.audit_* / maintenance.proposed) and
+# are deliberately NOT duplicated.
+V101_RUNTIME = (
+    "maintenance.relevance_determined",
+    "maintenance.reaudit_started", "maintenance.reaudit_completed",
+)
+
 EVENT_TYPES: frozenset[str] = frozenset(
     CONVERSATION + INTENT + NEED + MEMORY + WORLD + GOAL + COMMITMENT + PLAN
     + PREDICTION + INTERVENTION + ACTION + OUTCOME + CAUSAL + PRINCIPLE
@@ -229,7 +239,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
     + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844 + SECURITY_V85
-    + SEMANTIC_V9 + V10_MAINTENANCE
+    + SEMANTIC_V9 + V10_MAINTENANCE + V101_RUNTIME
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -271,6 +281,9 @@ LABELS: dict[str, str] = {
     "maintenance.deferred": "Deferred a maintenance proposal",
     "maintenance.applied": "Applied a confirmed model maintenance",
     "cognitive_health.updated": "Updated explainable cognitive health",
+    "maintenance.relevance_determined": "Assessed whether this turn touches your personal model",
+    "maintenance.reaudit_started": "Started re-checking the model after your confirmed update",
+    "maintenance.reaudit_completed": "Finished re-checking the model after your confirmed update",
     "intent.detected": "Understood what you're working toward",
     "intent.updated": "Refined your objective",
     "intent.changed": "Noticed your objective changed",

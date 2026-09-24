@@ -190,7 +190,8 @@ class Cognition:
             db, self.bus, self.personal_state, tenant_id=tenant_id)
         self.maintenance_proposals = MaintenanceProposalService(
             db, self.bus, self.personal_state, self.cognitive_debt,
-            self.contradictions, self.unknowns, self.autonomy, tenant_id=tenant_id)
+            self.contradictions, self.unknowns, self.autonomy,
+            predictions=self.predictions, tenant_id=tenant_id)
         self.cognitive_health = CognitiveHealthService(
             db, self.bus, self.personal_state, self.cognitive_debt,
             self.contradictions, self.unknowns, self.model_errors,
@@ -203,6 +204,15 @@ class Cognition:
         # Clear names for integrations and tests; these are references to the
         # same services, not a parallel implementation.
         self.v10 = self.self_maintenance
+
+        # -------------------------------------------------------- v10.1 core
+        # Runtime integration layer. It coordinates the EXISTING V10 services
+        # inside the conversational turn — it owns no state, no persistence
+        # and no events of its own beyond the canonical bus vocabulary.
+        from .maintenance_runtime import MaintenanceRuntimeCoordinator
+        self.maintenance_runtime = MaintenanceRuntimeCoordinator(
+            db, self.bus, self.personal_state, self.self_maintenance,
+            self.maintenance_proposals, self.unknowns, self.surface_lifecycle)
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,
@@ -475,6 +485,22 @@ class Cognition:
         except Exception:
             pass
 
+        # --- v10.1 bounded cognitive self-maintenance -----------------------
+        # One deterministic relevance decision, then at most ONE bounded
+        # maintenance invocation for this turn. Irrelevant turns pay only the
+        # relevance check. A maintenance failure is reported honestly in the
+        # trace but never breaks the user's conversation.
+        try:
+            maintenance = self.maintenance_runtime.run_for_turn(
+                user_id, message, correlation_id=cid, thread_id=thread,
+                meaning=meaning, world_entities=entities)
+        except Exception as exc:  # pragma: no cover - coordinator is defensive
+            log.warning("V10.1 maintenance coordination failed: %s", exc)
+            maintenance = {"correlation_id": cid, "status": "MAINTENANCE_FAILED",
+                           "relevance": {"relevant": False, "reasons": []},
+                           "findings": [], "proposals": [], "audit": None,
+                           "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+
         return {
             "correlation_id": cid,
             "meaning": meaning,
@@ -510,6 +536,8 @@ class Cognition:
             "continuity": continuity_items,
             "context": context_bundle.as_dict(),
             "capabilities": self.router.report().as_dict(),
+            # ------------------------------------------------------- v10.1
+            "maintenance": maintenance,
         }
 
     def learned_for_turn(self, correlation_id: str | None) -> dict[str, Any] | None:

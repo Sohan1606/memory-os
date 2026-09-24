@@ -575,3 +575,35 @@ real-model/environment gates; deterministic tests are not reported as real-model
 success. Browser QA remains **NOT VERIFIED** because Chromium cannot load the
 sandbox's missing `libnspr4.so`. See [`V10-VERIFICATION.md`](V10-VERIFICATION.md)
 for the portability, migration, frontend, browser, and model-status matrix.
+
+## V10.1 runtime integration gate
+
+The V10.1 focused suite exercises the runtime integration against the real
+composition root:
+
+```text
+PYTHONPATH=backend pytest -q backend/tests/test_v101_runtime_integration.py
+```
+
+On 2026-09-23 it completed with **28 passed**: relevance gating (irrelevant
+turn runs nothing; state-change / conflict-query / prediction-outcome /
+unknown-evidence turns run the narrowed families), bounded execution (one
+audit per correlation, no event-subscriber recursion, re-audit depth capped
+at 1), truthful surface stages (FAILED stays FAILED; no maintenance stage on
+irrelevant turns), findings and evidence refs, confirmation gating
+(reject/defer/confirm, AutonomyGovernor authority, version-only-on-approval),
+one bounded idempotent re-audit, cross-user/cross-correlation isolation, and
+the `/api/chat` + confirm-endpoint integration.
+
+The full non-slow backend gate on the same date:
+
+```text
+cd backend && pytest -m "not slow" -q
+```
+
+completed with **1015 passed, 10 skipped, 0 failed** (skips are the
+pre-existing explicit real-model/environment gates). Frontend
+`npm ci` / `typecheck` / `lint` / `build` all pass. Browser verification for
+V10.1 is **PASS** (real Playwright Chromium against live `next start` +
+FastAPI; see [`V10.1-VERIFICATION.md`](V10.1-VERIFICATION.md)). Real-model
+status for V10.1 is **NOT CONNECTED** in this environment.

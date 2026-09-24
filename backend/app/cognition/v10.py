@@ -937,13 +937,17 @@ class MaintenanceProposalService(V10ScopedService):
     """Bounded proposals; confirmation and application are separate steps."""
 
     def __init__(self, db, bus, personal_state, debt, contradictions, unknowns,
-                 autonomy, *, tenant_id: str = "local"):
+                 autonomy, *, predictions=None, tenant_id: str = "local"):
         super().__init__(db, bus, tenant_id=tenant_id)
         self.personal_state = personal_state
         self.debt = debt
         self.contradictions = contradictions
         self.unknowns = unknowns
         self.autonomy = autonomy
+        # V10.1 fix: the canonical PredictionEngine is the single authority
+        # for resolving predictions. Optional for backward compatibility —
+        # without it RECORD_OUTCOME remains honestly BLOCKED.
+        self.predictions = predictions
 
     def get(self, user_id: str, proposal_id: str) -> dict[str, Any] | None:
         row = self.db.query_one(
@@ -1105,6 +1109,14 @@ class MaintenanceProposalService(V10ScopedService):
             self.unknowns.resolve(user_id, targets[0],
                                   reason=reason or "User supplied confirming evidence.",
                                   correlation_id=correlation_id)
+        elif typ == ProposalType.RECORD_OUTCOME.value:
+            # V10.1: apply through the canonical PredictionEngine only. The
+            # user's confirmation authorizes applying the referenced evidence;
+            # it does NOT authorize inventing a verdict the engine cannot
+            # support. An unresolvable observation raises and the proposal is
+            # honestly BLOCKED — never falsely APPLIED.
+            self._apply_record_outcome(user_id, item, reason=reason,
+                                       correlation_id=correlation_id)
         elif typ == ProposalType.DEFER_MAINTENANCE.value:
             return
         else:
@@ -1118,6 +1130,89 @@ class MaintenanceProposalService(V10ScopedService):
         self._emit(user_id, "maintenance.applied", "Applied a confirmed maintenance proposal.",
                    subject_kind="maintenance_proposal", subject_id=item["id"],
                    correlation_id=correlation_id, payload={"proposal_type": typ, "targets": targets})
+
+    def _apply_record_outcome(self, user_id: str, item: dict[str, Any], *,
+                              reason: str | None, correlation_id: str | None) -> None:
+        """Record a confirmed prediction outcome through the canonical engine.
+
+        Authority rules:
+        - PredictionEngine.observe() is the ONLY evaluator; no verdict logic
+          is duplicated here and no outcome is stored in maintenance rows.
+        - The observation must be a real canonical cognitive object named in
+          the proposal's evidence references.
+        - If observe() reports the observation does not resolve the
+          prediction (no explicit resolution signal), this raises ValueError:
+          the prediction stays open, no correct/incorrect result is
+          fabricated, and the proposal lands in BLOCKED — not APPLIED.
+        """
+        if self.predictions is None:
+            raise ValueError("The canonical prediction engine is not attached; "
+                             "RECORD_OUTCOME cannot be applied.")
+        targets = item["target_object_ids"]
+        refs = item.get("evidence_refs") or []
+
+        # 1. Identify the target prediction, scoped through the canonical
+        # user+tenant boundary exactly like propose() validated it.
+        prediction_id: str | None = None
+        candidates = [str(r["id"]) for r in refs
+                      if isinstance(r, dict) and r.get("kind") == "prediction" and r.get("id")]
+        candidates += [str(t) for t in targets]
+        clause = self._canonical_scope("p")
+        for candidate in candidates:
+            if self.db.query_one(
+                    f"SELECT 1 FROM predictions p WHERE p.id=? AND {clause}",
+                    (candidate,) + self._canonical_scope_params(user_id)):
+                prediction_id = candidate
+                break
+        if prediction_id is None:
+            raise ValueError("RECORD_OUTCOME has no canonical prediction target "
+                             "in the verified user and tenant scope.")
+
+        # 2. Identify the actual canonical observation object from the
+        # proposal's evidence references. Without one there is no evidence to
+        # apply — the proposal is blocked rather than silently applied.
+        observation = None
+        for ref in refs:
+            if isinstance(ref, dict) and ref.get("kind") == "cognitive_object" and ref.get("id"):
+                obj = self.personal_state.get(user_id, str(ref["id"]))
+                if obj:
+                    observation = obj
+                    break
+        if observation is None:
+            raise ValueError("RECORD_OUTCOME requires a canonical observation "
+                             "object in its evidence references; none exists yet. "
+                             "Provide the observation first.")
+
+        # 3/4. Pass the real observation text into the canonical engine. The
+        # engine's explicit resolution-signal rules stay authoritative; no
+        # `supports` override is passed, so confirmation cannot force a verdict.
+        result = self.predictions.observe(
+            user_id, prediction_id, str(observation.get("content") or ""),
+            evidence=[observation["id"]], correlation_id=correlation_id)
+        if result is None:
+            raise ValueError("The prediction is no longer open; there is "
+                             "nothing left to record against it.")
+        if not result.get("resolved"):
+            # 8/9. Honest insufficiency: prediction remains open, proposal
+            # becomes BLOCKED via the confirm() boundary, nothing is invented.
+            raise ValueError(result.get("reason") or (
+                "INSUFFICIENT EVIDENCE — the observation does not clearly "
+                "confirm or refute this prediction, so it remains open."))
+
+        # The canonical evaluation succeeded (events and history were emitted
+        # by the engine itself). Resolve any linked prediction-debt targets
+        # through the existing debt lifecycle.
+        for target in targets:
+            debt = self.debt.get(user_id, target)
+            if debt and debt.get("debt_type") == DebtType.UNVALIDATED_PREDICTION.value \
+                    and debt["status"] != DebtStatus.RESOLVED.value:
+                if debt["status"] == DebtStatus.OPEN.value:
+                    self.debt.transition(user_id, debt["id"], DebtStatus.ACKNOWLEDGED.value,
+                                         reason=reason or "Outcome recorded through the canonical prediction engine.",
+                                         correlation_id=correlation_id)
+                self.debt.transition(user_id, debt["id"], DebtStatus.RESOLVED.value,
+                                     reason=reason or "Outcome recorded through the canonical prediction engine.",
+                                     correlation_id=correlation_id)
 
 
 class CognitiveHealthService(V10ScopedService):
@@ -1288,9 +1383,34 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
                        correlation_id=correlation_id, payload={"kind": kind, "from_version": older["version"], "to_version": newer["version"]})
         return drift
 
+    # All five bounded families. `audit(families=None)` preserves the exact
+    # V10.0.1 full-audit behavior; the V10.1 runtime narrows deterministically.
+    FAMILIES = ("debt", "contradictions", "unknowns", "model_errors", "drift")
+
+    def _stage(self, lifecycle, user_id: str, thread_id: str | None,
+               correlation_id: str, stage: str, status: str,
+               detail: str | None = None) -> None:
+        """Emit a truthful surface stage only when a lifecycle is attached.
+
+        Stages are emitted strictly around work that executes; a surface
+        emission failure never breaks the audit itself.
+        """
+        if lifecycle is None:
+            return
+        try:
+            lifecycle.transition(user_id, thread_id or "maintenance",
+                                 correlation_id, stage, status, detail=detail)
+        except Exception:  # pragma: no cover - observability must not break work
+            pass
+
     def audit(self, user_id: str, *, correlation_id: str | None = None,
-              include_resolved: bool = False) -> dict[str, Any]:
+              include_resolved: bool = False,
+              families: list[str] | None = None,
+              lifecycle=None, thread_id: str | None = None) -> dict[str, Any]:
         cid = correlation_id or _id("audit")
+        selected = tuple(f for f in (families or self.FAMILIES) if f in self.FAMILIES)
+        if families is not None and not selected:
+            raise ValueError("No valid maintenance families were selected.")
         existing_run = self.db.query_one(
             "SELECT status,result_json FROM maintenance_runs WHERE correlation_id=? AND user_id=? AND tenant_id=?",
             (cid, user_id, self._tenant(user_id)))
@@ -1302,14 +1422,55 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
             "INSERT INTO maintenance_runs (id,user_id,tenant_id,correlation_id,status,started_at) VALUES (?,?,?,?,?,?)",
             (_id("run"), user_id, self._tenant(user_id), cid, "RUNNING", started))
         self._emit(user_id, "cognitive_model.audit_started", "Started an explicit cognitive model audit.",
-                   subject_kind="maintenance_run", subject_id=cid, correlation_id=cid)
+                   subject_kind="maintenance_run", subject_id=cid, correlation_id=cid,
+                   payload={"families": list(selected)})
+        self._stage(lifecycle, user_id, thread_id, cid,
+                    "AUDITING_PERSONAL_MODEL", "ACTIVE")
         try:
-            debts = self.debt.detect(user_id, correlation_id=cid)
-            contradictions = self.contradictions.audit(user_id, correlation_id=cid)
-            unknowns = self.unknowns.detect(user_id, contradictions, correlation_id=cid)
-            errors = self.errors.detect(user_id, correlation_id=cid)
-            drift = self._drift(user_id, correlation_id=cid)
+            debts: list[dict[str, Any]] = []
+            contradictions: list[dict[str, Any]] = []
+            unknowns: list[dict[str, Any]] = []
+            errors: list[dict[str, Any]] = []
+            drift: list[dict[str, Any]] = []
+            if "debt" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_FOR_STALE_STATE", "ACTIVE")
+                debts = self.debt.detect(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_FOR_STALE_STATE", "COMPLETED")
+            if "contradictions" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_CONTRADICTIONS", "ACTIVE")
+                contradictions = self.contradictions.audit(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_CONTRADICTIONS", "COMPLETED")
+            if "unknowns" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_OPEN_UNKNOWNS", "ACTIVE")
+                unknowns = self.unknowns.detect(user_id, contradictions, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "CHECKING_OPEN_UNKNOWNS", "COMPLETED")
+            if "model_errors" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PREDICTION_TO_OUTCOME", "ACTIVE")
+                errors = self.errors.detect(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PREDICTION_TO_OUTCOME", "COMPLETED")
+                if errors:
+                    # ANALYZING_MODEL_ERROR reflects the classification work
+                    # that record() genuinely performed for these findings.
+                    self._stage(lifecycle, user_id, thread_id, cid,
+                                "ANALYZING_MODEL_ERROR", "COMPLETED")
+            if "drift" in selected:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PERSONAL_STATE", "ACTIVE")
+                drift = self._drift(user_id, correlation_id=cid)
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "COMPARING_PERSONAL_STATE", "COMPLETED")
             proposals: list[dict[str, Any]] = []
+            if debts or contradictions:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "EVALUATING_MAINTENANCE_OPTIONS", "ACTIVE")
             for debt in debts:
                 if debt["debt_type"] == DebtType.STALE_ASSUMPTION.value:
                     targets = debt["object_ids"]
@@ -1338,9 +1499,13 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
                         reason="A true contradiction finding can be closed; neither underlying object will be rewritten by this proposal.",
                         evidence_refs=contradiction["evidence_refs"], uncertainty="User context is still required to choose the durable state.",
                         reversible=True, correlation_id=cid))
+            if debts or contradictions:
+                self._stage(lifecycle, user_id, thread_id, cid,
+                            "EVALUATING_MAINTENANCE_OPTIONS", "COMPLETED")
             health = self.health.compute(user_id, correlation_id=cid, persist=True)
             result = {"correlation_id": cid, "status": "COMPLETED", "started_at": started,
-                      "completed_at": now(), "debt": debts, "contradictions": contradictions,
+                      "completed_at": now(), "families": list(selected),
+                      "debt": debts, "contradictions": contradictions,
                       "unknowns": unknowns, "model_errors": errors, "drift": drift,
                       "proposals": proposals, "cognitive_health": health}
             self.db.execute(
@@ -1348,7 +1513,9 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
                 (_json(result), result["completed_at"], cid, user_id, self._tenant(user_id)))
             self._emit(user_id, "cognitive_model.audit_completed", "Completed the cognitive model audit.",
                        subject_kind="maintenance_run", subject_id=cid, correlation_id=cid,
-                       payload={"status": "COMPLETED", "counts": {"debt": len(debts), "contradictions": len(contradictions), "unknowns": len(unknowns), "model_errors": len(errors), "proposals": len(proposals)}})
+                       payload={"status": "COMPLETED", "families": list(selected), "counts": {"debt": len(debts), "contradictions": len(contradictions), "unknowns": len(unknowns), "model_errors": len(errors), "proposals": len(proposals)}})
+            self._stage(lifecycle, user_id, thread_id, cid,
+                        "AUDITING_PERSONAL_MODEL", "COMPLETED")
             return result
         except Exception as exc:
             self.db.execute(
@@ -1357,6 +1524,9 @@ class SelfMaintenanceOrchestrator(V10ScopedService):
             self._emit(user_id, "cognitive_model.audit_completed", "Cognitive model audit failed honestly.",
                        subject_kind="maintenance_run", subject_id=cid, correlation_id=cid,
                        payload={"status": "FAILED", "error": str(exc)[:300]})
+            self._stage(lifecycle, user_id, thread_id, cid,
+                        "AUDITING_PERSONAL_MODEL", "FAILED",
+                        detail=f"Audit failed: {type(exc).__name__}")
             raise
 
     def run(self, user_id: str, correlation_id: str) -> dict[str, Any] | None:

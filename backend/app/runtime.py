@@ -172,6 +172,9 @@ class Runtime:
                 "semantic_extraction": self.cognition.meaning.model_compiler.status(),
                 "v10": {
                     "enabled": True,
+                    # V10.1: maintenance participates in the conversational
+                    # turn through a deterministic relevance gate.
+                    "runtime_integration": True,
                     "debt": len(self.cognition.cognitive_debt.list(self.settings.demo_user_id)),
                     "contradictions": len(self.cognition.contradictions.list(self.settings.demo_user_id)),
                     "unknowns": len(self.cognition.unknowns.list(self.settings.demo_user_id)),
@@ -183,8 +186,13 @@ class Runtime:
             "routing": self.cognition.router.routing_table(),
             # `version` is the established V8.2 API-contract marker retained for
             # backwards compatibility; `release` identifies the running slice.
+            # V10.1 correction: the codebase has been the V10.0.1 mainline since
+            # the V10 merge, but `release` still said "9.0.2". The field's
+            # meaning and type are unchanged (documented in
+            # docs/V10.1-ARCHITECTURE.md); only the stale value is corrected so
+            # the running release is reported truthfully.
             "version": "8.2",
-            "release": "9.0.2",
+            "release": "10.0.1",
             "semantic": {
                 "schema": "9.0",
                 "object_types": 26,
