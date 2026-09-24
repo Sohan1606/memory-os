@@ -186,13 +186,13 @@ class Runtime:
             "routing": self.cognition.router.routing_table(),
             # `version` is the established V8.2 API-contract marker retained for
             # backwards compatibility; `release` identifies the running slice.
-            # V10.1 correction: the codebase has been the V10.0.1 mainline since
-            # the V10 merge, but `release` still said "9.0.2". The field's
-            # meaning and type are unchanged (documented in
-            # docs/V10.1-ARCHITECTURE.md); only the stale value is corrected so
-            # the running release is reported truthfully.
+            # V10.1.1 correction: V10.1 (runtime integration of cognitive
+            # self-maintenance) was merged into main and released as v10.1.0,
+            # so `release` reports "10.1.0". The field's meaning and type are
+            # unchanged (documented in docs/V10.1-ARCHITECTURE.md); only the
+            # value tracks the actually released slice.
             "version": "8.2",
-            "release": "10.0.1",
+            "release": "10.1.0",
             "semantic": {
                 "schema": "9.0",
                 "object_types": 26,

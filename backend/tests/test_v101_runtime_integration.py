@@ -555,11 +555,17 @@ def test_v101_events_are_registered_and_bounded():
 
 
 def test_health_reports_v10_release_and_runtime_integration():
+    """Regression: the released V10.1.0 slice must be reported truthfully.
+
+    `version` stays "8.2" (established API-compatibility contract marker);
+    `release` is the released-slice marker and must be "10.1.0" after the
+    V10.1 merge/tag/release.
+    """
     rt, root = make_runtime()
     try:
         health = rt.health()
         assert health["version"] == "8.2"  # preserved compatibility marker
-        assert health["release"] == "10.0.1"
+        assert health["release"] == "10.1.0"  # released V10.1.0 slice
         assert health["cognition"]["v10"]["runtime_integration"] is True
     finally:
         rt.close(); shutil.rmtree(root, ignore_errors=True)
