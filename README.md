@@ -1,17 +1,18 @@
 # MEMORY//OS
 
-**MEMORY//OS V10.0.1 Cognitive Self-Maintenance core, with the V10.1 runtime
-integration in progress on `feature/v10.1-runtime-integration`.**
+**MEMORY//OS V10.1.0 — Cognitive Self-Maintenance runtime integration.
+Released and current (tag `v10.1.0`, merged to `main`).**
 
-The V10.0.1 core adds evidence-backed cognitive debt, proposition-aware
-contradiction records, explicit unknowns, model-error classification,
-explainable cognitive health, and confirmation-gated maintenance proposals.
-It reuses the V9 Meaning Kernel, Personal State, EventBus, Prediction/Outcome
-records, Autonomy Governor, authorization, and portability system. See
+The V10.0.1 core (the prior release, now the baseline) added evidence-backed
+cognitive debt, proposition-aware contradiction records, explicit unknowns,
+model-error classification, explainable cognitive health, and
+confirmation-gated maintenance proposals. It reuses the V9 Meaning Kernel,
+Personal State, EventBus, Prediction/Outcome records, Autonomy Governor,
+authorization, and portability system. See
 [`docs/V10-ARCHITECTURE.md`](docs/V10-ARCHITECTURE.md) and
 [`docs/V10-VERIFICATION.md`](docs/V10-VERIFICATION.md).
 
-V10.1 connects that maintenance core to the normal conversational turn: a
+V10.1.0 connects that maintenance core to the normal conversational turn: a
 deterministic, explainable relevance gate decides per turn whether bounded
 maintenance checks run; findings surface as canonical-evidence summaries in
 the conversation; material changes remain confirmation-gated through the

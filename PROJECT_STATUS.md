@@ -1,10 +1,19 @@
 # PROJECT STATUS
 
+## V10.1.0 — RELEASED (current release)
+
+V10.1 Cognitive Self-Maintenance Runtime Integration is **merged into
+`main`** (PR #14; merge commit
+`5fdb5988095c6945aba8b7fec79f9d99bbc71d4e`) and **tagged/released as
+`v10.1.0`**. The current `main` release is V10.1.0. The runtime reports it
+truthfully: health `version: "8.2"` (preserved compatibility contract) and
+`release: "10.1.0"`.
+
 ## V10.1 PR #14 correctness fix (2026-09-24)
 
-One commit on `feature/v10.1-runtime-integration` fixing three coupled
-correctness bugs found in PR review — no feature redesign, no new stores,
-no history rewrite:
+One commit on `feature/v10.1-runtime-integration` (merged to `main` as part
+of PR #14) fixing three coupled correctness bugs found in PR review — no
+feature redesign, no new stores, no history rewrite:
 
 1. **Turn-context proposal visibility** — `run_for_turn` now merges the
    audit's proposals with the rows created by the prediction-outcome and
@@ -31,8 +40,9 @@ full visibility→confirm→apply→re-audit chain **9/9 PASS**; real model
 
 ## V10.1 Cognitive Self-Maintenance Runtime Integration (2026-09-23)
 
-Work is on `feature/v10.1-runtime-integration` (baseline: released V10.0.1
-mainline). V10.1 connects the existing V10 maintenance services to the normal
+Developed on `feature/v10.1-runtime-integration` (baseline: the then-released
+V10.0.1 mainline); merged into `main` via PR #14 and released as `v10.1.0`.
+V10.1 connects the existing V10 maintenance services to the normal
 conversational turn — it adds one integration module
 (`backend/app/cognition/maintenance_runtime.py`) and surgical extensions to
 the orchestrator, orchestrator trace summary, confirm endpoint, event
@@ -50,8 +60,8 @@ scheduler, no parallel systems.
 | Frontend | **PASS** | `npm ci`, typecheck, lint, production build |
 | Browser | **PASS** | Real Chromium against live `next start` + FastAPI: health release, irrelevant/relevant chat turns, live V10 surface stages, workspace render, zero page errors |
 | Real model | **NOT CONNECTED** | No Ollama reachable; deterministic tests are not claimed as real-model evidence |
-| Health metadata | **PASS** | `version: "8.2"` preserved; `release` corrected to truthfully report `10.0.1`; additive `runtime_integration` flag |
-| Merge / tag / release | **NOT PERFORMED** | By directive: implementation and verification only on this branch |
+| Health metadata | **PASS** | `version: "8.2"` preserved; `release` reports the released slice `10.1.0`; additive `runtime_integration` flag |
+| Merge / tag / release | **PASS** | Merged to `main` via PR #14 (merge commit `5fdb5988095c6945aba8b7fec79f9d99bbc71d4e`); tagged and released as `v10.1.0` |
 
 Details: [`docs/V10.1-ARCHITECTURE.md`](docs/V10.1-ARCHITECTURE.md),
 [`docs/V10.1-VERIFICATION.md`](docs/V10.1-VERIFICATION.md).
