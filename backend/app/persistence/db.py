@@ -217,6 +217,22 @@ CREATE TABLE IF NOT EXISTS policies (
 );
 CREATE INDEX IF NOT EXISTS idx_policies_user ON policies(user_id, key);
 
+-- V10.2 governed adaptations; never an effective-policy store.
+CREATE TABLE IF NOT EXISTS policy_governance (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tenant_id TEXT, domain TEXT NOT NULL,
+    target TEXT NOT NULL, proposed_value TEXT NOT NULL, state TEXT NOT NULL,
+    reason TEXT NOT NULL, evidence_refs TEXT NOT NULL, correlation_id TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_governance_user ON policy_governance(user_id, updated_at);
+CREATE TABLE IF NOT EXISTS policy_governance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    tenant_id TEXT, previous_state TEXT NOT NULL, new_state TEXT NOT NULL,
+    reason TEXT NOT NULL, evidence_refs TEXT NOT NULL, correlation_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_governance_history_candidate ON policy_governance_history(candidate_id, id);
+
 -- Sandbox branches. Never touch real state.
 CREATE TABLE IF NOT EXISTS sandbox_runs (
     id TEXT PRIMARY KEY,

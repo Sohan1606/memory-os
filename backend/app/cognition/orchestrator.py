@@ -52,6 +52,7 @@ from .llm_extract import LLMExtractor
 from .perception import PerceptionEngine
 from .learning import LearningEngine
 from .policy_engine import CognitivePolicyEngine
+from .governance import PolicyEvidenceAssembler, LearningSignalDeriver, PolicyGovernanceService, PolicyRuntimeCoordinator
 from .prediction import PredictionEngine
 from .reputation import MemoryArbiter, ReputationStore
 from .sandbox import Sandbox
@@ -106,6 +107,12 @@ class Cognition:
         self.influence = InfluenceLedger(db, self.bus, self.reputation,
                                          self.causal)
         self.policy = CognitivePolicyEngine(db, self.bus)
+        # V10.2 is subordinate to the released engine: these services govern
+        # proposals and evidence, while effective policy remains self.policy.
+        self.policy_evidence = PolicyEvidenceAssembler(db, self.bus)
+        self.learning_signals = LearningSignalDeriver()
+        self.policy_governance = PolicyGovernanceService(db, self.bus, self.policy)
+        self.policy_runtime = PolicyRuntimeCoordinator(self.policy_governance)
         self.capability_trust = CapabilityTrust(db, self.bus)
         self.intent_evolution = IntentEvolution(db, self.bus, self.intent)
         self.needs = NeedDetector(db, self.bus)

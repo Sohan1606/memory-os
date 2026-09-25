@@ -65,7 +65,7 @@ TABLES = (
     "cognitive_relationships", "personal_state_versions",
     "cognitive_debt", "contradiction_records", "unknown_records",
     "model_error_records", "maintenance_proposals", "cognitive_health_snapshots",
-    "maintenance_runs",
+    "maintenance_runs", "policy_governance", "policy_governance_history",
 )
 
 TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -81,6 +81,8 @@ TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
     "decisions": ("decisions", "causality"),
     "trust_records": ("user_model",), "capability_trust": ("user_model",),
     "memory_reputation": ("memories", "user_model"), "policies": ("user_model",),
+    "policy_governance": ("user_model", "events"),
+    "policy_governance_history": ("user_model", "events"),
     "sandbox_runs": ("events",), "interventions": ("user_model", "events"),
     "arbitration_records": ("events",), "memory_influences": ("memories", "events"),
     "need_hypotheses": ("needs",), "execution_traces": ("events",),

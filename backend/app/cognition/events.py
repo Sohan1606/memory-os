@@ -86,7 +86,7 @@ NEED_V82 = ("need.evaluated",)
 CONTROL = ("control.command", "control.refused")
 
 # --------------------------------------------------------------- v8.3 events
-# Continuous-cognition additions (§3). Every category below is emitted from
+# Continuous-cognition additions (Â§3). Every category below is emitted from
 # work that genuinely executed. Background cycles that found nothing still
 # emit background.cycle_completed with an honest empty finding set.
 PERCEPTION_V83 = ("perception.normalised", "perception.unsupported",
@@ -178,7 +178,7 @@ PORTABILITY_V844 = (
 # through the same reads as every other subsystem.
 #
 # PRIVACY RULE: summaries and payloads for these events carry identifiers and
-# coarse metadata only — never passwords, tokens, secret values, or the text
+# coarse metadata only â€” never passwords, tokens, secret values, or the text
 # of any memory. `auth.failed` records the attempted email's redacted form,
 # not credentials.
 SECURITY_V85 = (
@@ -223,6 +223,7 @@ V10_MAINTENANCE = (
 # already exist above (cognitive_model.audit_* / maintenance.proposed) and
 # are deliberately NOT duplicated.
 V101_RUNTIME = (
+    "governance.transition",
     "maintenance.relevance_determined",
     "maintenance.reaudit_started", "maintenance.reaudit_completed",
 )
@@ -392,6 +393,9 @@ LABELS: dict[str, str] = {
     "continuity.item_opened": "Started tracking something to return to",
     "continuity.item_closed": "Closed off something we were tracking",
     "policy.reverted": "Undid a behaviour change",
+    "governance.transition": "Governance transition",
+
+
     "trust.capability_changed": "Reliability estimate changed for a capability",
     "trust.recovered": "A capability became reliable again",
     "focus.changed": "You focused on something specific",
