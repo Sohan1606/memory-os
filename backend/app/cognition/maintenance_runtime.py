@@ -55,6 +55,12 @@ EXPLICIT_AUDIT_REQUEST = "EXPLICIT_AUDIT_REQUEST"
 # depth-1 re-audit; the coordinator refuses to audit it again (depth cap).
 REAUDIT_SUFFIX = "::reaudit1"
 
+# V10.2: the governance evaluation marker. A correlation carrying this suffix
+# identifies a bounded depth-1 governance re-evaluation. It is terminal for
+# maintenance as well, so a governance marker can never trigger an audit,
+# re-audit or further governance evaluation (V10.2 spec §10.4).
+GOVERNANCE_SUFFIX = "::pgov1"
+
 # V10.1 fix: the bounded post-confirmation re-audit verifies the families the
 # confirmed mutation could actually have changed — deterministically derived
 # from the proposal type, never a blind run of every family. A confirmed
@@ -394,10 +400,13 @@ class MaintenanceRuntimeCoordinator:
         if not relevance.relevant:
             return context
         # Depth guard: a re-audit correlation must never trigger a new audit.
-        if correlation_id.endswith(REAUDIT_SUFFIX):
+        # V10.2: a governance-marker correlation is equally terminal here —
+        # governance and maintenance are bounded siblings, never recursive.
+        if correlation_id.endswith(REAUDIT_SUFFIX) or correlation_id.endswith(GOVERNANCE_SUFFIX):
             context["status"] = NO_MAINTENANCE_NEEDED
             context["relevance"]["reasons"].append(
-                "Re-audit correlations are terminal; no further audit is allowed.")
+                "Re-audit and governance correlations are terminal; no further "
+                "audit is allowed.")
             return context
         try:
             audit = self.self_maintenance.audit(

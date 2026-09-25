@@ -6,8 +6,6 @@ import threading
 from pathlib import Path
 from typing import Any, Iterable
 
-_LOCAL = threading.local()
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
@@ -217,21 +215,98 @@ CREATE TABLE IF NOT EXISTS policies (
 );
 CREATE INDEX IF NOT EXISTS idx_policies_user ON policies(user_id, key);
 
--- V10.2 governed adaptations; never an effective-policy store.
+-- V10.2 governed adaptations and their append-only lifecycle history.
+-- This is a GOVERNANCE layer above the V8.2 CognitivePolicyEngine, never a
+-- competing policy store: current effective policy lives in `policies` and is
+-- read only through CognitivePolicyEngine. Governance rows record proposals,
+-- evidence references and lifecycle state only.
 CREATE TABLE IF NOT EXISTS policy_governance (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tenant_id TEXT, domain TEXT NOT NULL,
-    target TEXT NOT NULL, proposed_value TEXT NOT NULL, state TEXT NOT NULL,
-    reason TEXT NOT NULL, evidence_refs TEXT NOT NULL, correlation_id TEXT NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    domain TEXT NOT NULL,
+    target TEXT NOT NULL,
+    proposed_value TEXT NOT NULL,
+    current_value TEXT,
+    state TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence_refs TEXT NOT NULL,
+    signal_json TEXT NOT NULL DEFAULT '{}',
+    expected_effect TEXT NOT NULL DEFAULT '{}',
+    validation TEXT NOT NULL DEFAULT '{}',
+    provenance TEXT NOT NULL DEFAULT 'runtime_derivation',
+    correlation_id TEXT NOT NULL,
+    superseded_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    accepted_at TEXT,
+    activated_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_policy_governance_user ON policy_governance(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_policy_governance_scope ON policy_governance(tenant_id, user_id, state, updated_at DESC);
 CREATE TABLE IF NOT EXISTS policy_governance_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    tenant_id TEXT, previous_state TEXT NOT NULL, new_state TEXT NOT NULL,
-    reason TEXT NOT NULL, evidence_refs TEXT NOT NULL, correlation_id TEXT NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    previous_state TEXT,
+    new_state TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence_refs TEXT NOT NULL,
+    correlation_id TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_policy_governance_history_candidate ON policy_governance_history(candidate_id, id);
+
+-- Bounded-run ledger for the V10.2 runtime coordinator: exactly one top-level
+-- governance evaluation per user+turn correlation (mirrors the V10.1
+-- maintenance_runs UNIQUE-correlation discipline, so the bound is provable
+-- from persisted data).
+CREATE TABLE IF NOT EXISTS policy_governance_runs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    correlation_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    UNIQUE(user_id, correlation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_policy_governance_runs_scope ON policy_governance_runs(tenant_id, user_id, started_at DESC);
+
+-- Consultations (§11): a REAL consumer actually operated under an adapted
+-- value in a later turn. Written only at the consumer seam, never
+-- speculatively by the governance layer.
+CREATE TABLE IF NOT EXISTS policy_governance_consultations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    adaptation_id TEXT NOT NULL,
+    consumer TEXT NOT NULL,
+    matched_scope TEXT NOT NULL DEFAULT '{}',
+    effect TEXT NOT NULL,
+    turn_correlation_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(adaptation_id, turn_correlation_id, consumer)
+);
+CREATE INDEX IF NOT EXISTS idx_policy_governance_consultations ON policy_governance_consultations(tenant_id, user_id, adaptation_id, id);
+
+-- Effectiveness observations (§12): outcome evidence for influenced turns.
+-- Stored separately from the frozen adaptation evidence on policy_governance;
+-- the two evidence roles are never merged.
+CREATE TABLE IF NOT EXISTS policy_governance_observations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT 'local',
+    adaptation_id TEXT NOT NULL,
+    category TEXT NOT NULL,
+    turn_correlation_id TEXT NOT NULL,
+    evidence_refs TEXT NOT NULL DEFAULT '[]',
+    detail TEXT NOT NULL,
+    correlation_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_governance_observations ON policy_governance_observations(tenant_id, user_id, adaptation_id, id);
 
 -- Sandbox branches. Never touch real state.
 CREATE TABLE IF NOT EXISTS sandbox_runs (
@@ -1350,12 +1425,22 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
 
 
 class Database:
-    """Thin thread-safe SQLite wrapper (one connection per thread)."""
+    """Thin thread-safe SQLite wrapper (one connection per thread per instance).
+
+    Connections are tracked ON THE INSTANCE, keyed by thread id. They were
+    previously cached in a process-global ``threading.local`` keyed by
+    ``id(self)`` — which is not unique across instance lifetimes, so a newly
+    constructed Database could silently inherit a dead instance's open
+    connection to a *different* file. Instance-scoped tracking makes that
+    cross-instance contamination structurally impossible and cleans up every
+    connection on ``close()``.
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._key = f"conn_{id(self)}"
+        self._lock = threading.Lock()
+        self._conns: dict[int, sqlite3.Connection] = {}
         with self.connect() as conn:
             conn.executescript(SCHEMA)
             conn.executescript(SCHEMA_V83)
@@ -1391,14 +1476,16 @@ class Database:
         conn.commit()
 
     def connect(self) -> sqlite3.Connection:
-        conn = getattr(_LOCAL, self._key, None)
-        if conn is None:
-            conn = sqlite3.connect(self.path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
-            setattr(_LOCAL, self._key, conn)
-        return conn
+        ident = threading.get_ident()
+        with self._lock:
+            conn = self._conns.get(ident)
+            if conn is None:
+                conn = sqlite3.connect(self.path, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA foreign_keys=ON")
+                self._conns[ident] = conn
+            return conn
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         conn = self.connect()
@@ -1414,7 +1501,10 @@ class Database:
         return rows[0] if rows else None
 
     def close(self) -> None:
-        conn = getattr(_LOCAL, self._key, None)
-        if conn is not None:
-            conn.close()
-            setattr(_LOCAL, self._key, None)
+        with self._lock:
+            for conn in self._conns.values():
+                try:
+                    conn.close()
+                except sqlite3.Error:  # pragma: no cover - defensive
+                    pass
+            self._conns.clear()

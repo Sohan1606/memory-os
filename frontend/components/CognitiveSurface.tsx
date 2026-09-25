@@ -25,6 +25,13 @@ const LABELS: Record<string, string> = {
   WAITING_FOR_CONFIRMATION: "Waiting for your confirmation",
   APPLYING_VERIFIED_UPDATE: "Applying your verified update",
   RE_AUDITING_MODEL: "Re-auditing personal model",
+  // V10.2: adaptive-policy governance stages, emitted only when the work ran.
+  CHECKING_ADAPTIVE_POLICY: "Checking adaptive policy",
+  COMPARING_POLICY_EVIDENCE: "Comparing policy evidence",
+  EVALUATING_POLICY_CHANGE: "Evaluating a policy change",
+  WAITING_FOR_POLICY_CONFIRMATION: "Waiting for your policy decision",
+  APPLYING_ADAPTIVE_POLICY: "Applying your confirmed policy",
+  MEASURING_POLICY_OUTCOME: "Measuring a policy outcome",
 };
 
 export default function CognitiveSurface({ surface, live = false }: {

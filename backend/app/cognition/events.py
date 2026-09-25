@@ -86,7 +86,7 @@ NEED_V82 = ("need.evaluated",)
 CONTROL = ("control.command", "control.refused")
 
 # --------------------------------------------------------------- v8.3 events
-# Continuous-cognition additions (Â§3). Every category below is emitted from
+# Continuous-cognition additions (§3). Every category below is emitted from
 # work that genuinely executed. Background cycles that found nothing still
 # emit background.cycle_completed with an honest empty finding set.
 PERCEPTION_V83 = ("perception.normalised", "perception.unsupported",
@@ -178,7 +178,7 @@ PORTABILITY_V844 = (
 # through the same reads as every other subsystem.
 #
 # PRIVACY RULE: summaries and payloads for these events carry identifiers and
-# coarse metadata only â€” never passwords, tokens, secret values, or the text
+# coarse metadata only — never passwords, tokens, secret values, or the text
 # of any memory. `auth.failed` records the attempted email's redacted form,
 # not credentials.
 SECURITY_V85 = (
@@ -223,9 +223,20 @@ V10_MAINTENANCE = (
 # already exist above (cognitive_model.audit_* / maintenance.proposed) and
 # are deliberately NOT duplicated.
 V101_RUNTIME = (
-    "governance.transition",
     "maintenance.relevance_determined",
     "maintenance.reaudit_started", "maintenance.reaudit_completed",
+)
+
+# V10.2 governance events. Additive observability for the evidence-governed
+# policy layer: lifecycle transitions, real consumer consultations, and
+# effectiveness observations. The released `policy.proposed` / `policy.updated`
+# / `policy.reverted` vocabulary remains untouched and is never emitted by the
+# governance layer itself — an applied adaptation surfaces as the engine's own
+# `policy.updated`.
+V102_GOVERNANCE = (
+    "governance.transition",
+    "governance.consultation",
+    "governance.observation",
 )
 
 EVENT_TYPES: frozenset[str] = frozenset(
@@ -240,7 +251,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
     + TIMEMACHINE + CONNECTOR + RESEARCH
     + EXPERIENCE_V841 + SKILL_V841 + PRINCIPLE_V841 + LEARNING_V841
     + EXPLANATION_V842 + RESEARCH_V843 + PORTABILITY_V844 + SECURITY_V85
-    + SEMANTIC_V9 + V10_MAINTENANCE + V101_RUNTIME
+    + SEMANTIC_V9 + V10_MAINTENANCE + V101_RUNTIME + V102_GOVERNANCE
 )
 
 # Human-readable labels for the primary (non-technical) UI.
@@ -394,8 +405,8 @@ LABELS: dict[str, str] = {
     "continuity.item_closed": "Closed off something we were tracking",
     "policy.reverted": "Undid a behaviour change",
     "governance.transition": "Governance transition",
-
-
+    "governance.consultation": "An adapted policy shaped this turn",
+    "governance.observation": "Measured an adapted policy's outcome",
     "trust.capability_changed": "Reliability estimate changed for a capability",
     "trust.recovered": "A capability became reliable again",
     "focus.changed": "You focused on something specific",

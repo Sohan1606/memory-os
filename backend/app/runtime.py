@@ -179,6 +179,13 @@ class Runtime:
                     "contradictions": len(self.cognition.contradictions.list(self.settings.demo_user_id)),
                     "unknowns": len(self.cognition.unknowns.list(self.settings.demo_user_id)),
                     "model_errors": len(self.cognition.model_errors.list(self.settings.demo_user_id)),
+                    # V10.2: evidence-governed policy evolution is wired into
+                    # the same bounded turn (governance layer above the V8.2
+                    # engine; MODEL_HANDLING stays governance-only).
+                    "v10_2_governance": {
+                        "enabled": True,
+                        "model_handling_activatable": False,
+                    },
                 },
             },
             # v8.2: capability truth and how each task would actually execute.

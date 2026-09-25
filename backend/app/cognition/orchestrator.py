@@ -107,12 +107,6 @@ class Cognition:
         self.influence = InfluenceLedger(db, self.bus, self.reputation,
                                          self.causal)
         self.policy = CognitivePolicyEngine(db, self.bus)
-        # V10.2 is subordinate to the released engine: these services govern
-        # proposals and evidence, while effective policy remains self.policy.
-        self.policy_evidence = PolicyEvidenceAssembler(db, self.bus)
-        self.learning_signals = LearningSignalDeriver()
-        self.policy_governance = PolicyGovernanceService(db, self.bus, self.policy)
-        self.policy_runtime = PolicyRuntimeCoordinator(self.policy_governance)
         self.capability_trust = CapabilityTrust(db, self.bus)
         self.intent_evolution = IntentEvolution(db, self.bus, self.intent)
         self.needs = NeedDetector(db, self.bus)
@@ -220,6 +214,26 @@ class Cognition:
         self.maintenance_runtime = MaintenanceRuntimeCoordinator(
             db, self.bus, self.personal_state, self.self_maintenance,
             self.maintenance_proposals, self.unknowns, self.surface_lifecycle)
+
+        # -------------------------------------------------------- v10.2 core
+        # Evidence-governed policy evolution: a governance layer ABOVE the
+        # released CognitivePolicyEngine (self.policy above). Effective policy
+        # is still read only through the engine; these services govern
+        # evidence, proposals and the lifecycle. They hold references to the
+        # same composition-root instances (engine, governor, bus) — there is
+        # no second policy authority anywhere.
+        self.policy_evidence = PolicyEvidenceAssembler(
+            db, self.bus, tenant_id=tenant_id)
+        self.learning_signals = LearningSignalDeriver()
+        self.policy_governance = PolicyGovernanceService(
+            db, self.bus, self.policy, self.autonomy,
+            evidence_assembler=self.policy_evidence,
+            signal_deriver=self.learning_signals,
+            lifecycle=self.surface_lifecycle, tenant_id=tenant_id)
+        self.policy_runtime = PolicyRuntimeCoordinator(
+            db, self.bus, self.policy_governance, self.policy_evidence,
+            self.learning_signals, self.policy,
+            lifecycle=self.surface_lifecycle, tenant_id=tenant_id)
 
     # ------------------------------------------------------------ the turn
     def process_turn(self, user_id: str, message: str, *,
@@ -466,6 +480,20 @@ class Cognition:
                 except (KeyError, ValueError) as exc:
                     log.info("Could not record %s influence: %s", section, exc)
 
+        # --- v10.2 read-only adaptive-policy inspection (§10.2) -------------
+        # After personal/world context assembly, before capability execution.
+        # Determines which ACTIVE governed adaptations match this turn's
+        # scope. A consultation is recorded only where the assembled context
+        # bundle proves a real consumer actually operated under the adapted
+        # value (§11.2) — never merely because a governance row is ACTIVE.
+        policy_governance = {"matched": [], "count": 0, "consulted": []}
+        try:
+            policy_governance = self.policy_runtime.inspect_for_turn(
+                user_id, correlation_id=cid,
+                context_items=context_bundle.items)
+        except Exception as exc:  # pragma: no cover - inspection is defensive
+            log.warning("V10.2 policy inspection failed: %s", exc)
+
         self.surface_lifecycle.transition(
             user_id, thread, cid, "EVALUATING_CONSEQUENCES", "ACTIVE")
         predictions = self.predictions.assess_world(user_id, self.world,
@@ -508,6 +536,28 @@ class Cognition:
                            "findings": [], "proposals": [], "audit": None,
                            "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
 
+        # --- v10.2 bounded governance evaluation (§10.3) --------------------
+        # Sibling of the maintenance step under the same turn correlation.
+        # Post outcome-observation: measures previously influenced turns,
+        # derives learning signals from this turn's canonical records, and may
+        # create at most one governed candidate — surfaced in this same turn
+        # per the V10.1 visibility rule. Never subscribes to maintenance
+        # events and never triggers it.
+        try:
+            governance_runtime = self.policy_runtime.run_for_turn(
+                user_id, message, correlation_id=cid, thread_id=thread,
+                meaning=meaning)
+        except Exception as exc:  # pragma: no cover - coordinator is defensive
+            log.warning("V10.2 governance coordination failed: %s", exc)
+            governance_runtime = {"correlation_id": cid,
+                                  "status": "GOVERNANCE_FAILED",
+                                  "relevance": {"relevant": False, "reasons": []},
+                                  "signals": [], "proposals": [],
+                                  "measurements": [], "expired": [],
+                                  "weakened": [],
+                                  "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        governance_runtime["inspection"] = policy_governance
+
         return {
             "correlation_id": cid,
             "meaning": meaning,
@@ -545,6 +595,8 @@ class Cognition:
             "capabilities": self.router.report().as_dict(),
             # ------------------------------------------------------- v10.1
             "maintenance": maintenance,
+            # ------------------------------------------------------- v10.2
+            "policy_governance": governance_runtime,
         }
 
     def learned_for_turn(self, correlation_id: str | None) -> dict[str, Any] | None:

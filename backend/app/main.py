@@ -723,6 +723,37 @@ def _summarize_trace(trace: dict[str, Any]) -> dict[str, Any]:
         # Canonical maintenance results for this turn. Every summary line is
         # derived from a persisted finding record — never invented reasoning.
         "maintenance": _summarize_maintenance(trace.get("maintenance")),
+        # ----------------------------------------------------------- v10.2
+        # Canonical governance results for this turn: signals actually derived,
+        # proposals actually created/surfaced, measurements actually recorded.
+        "policy_governance": _summarize_governance(trace.get("policy_governance")),
+    }
+
+
+def _summarize_governance(governance: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compact, user-safe view of this turn's bounded policy governance."""
+    if not governance:
+        return None
+    inspection = governance.get("inspection") or {}
+    return {
+        "status": governance.get("status"),
+        "relevant": bool((governance.get("relevance") or {}).get("relevant")),
+        "active_adaptations_matched": inspection.get("count", 0),
+        "consulted": [
+            {"adaptation_id": c.get("adaptation_id"), "consumer": c.get("consumer")}
+            for c in (inspection.get("consulted") or [])[:5]],
+        "signals": [
+            {"signal": s.get("signal"), "verdict": s.get("verdict"),
+             "target": s.get("target"), "reason": s.get("reason")}
+            for s in (governance.get("signals") or [])[:6]],
+        "proposals": [
+            {"id": p.get("id"), "target": p.get("target"),
+             "proposed_value": p.get("proposed_value"), "state": p.get("state"),
+             "reason": p.get("reason")}
+            for p in (governance.get("proposals") or [])[:5]],
+        "measurements": [
+            {"adaptation_id": m.get("adaptation_id"), "category": m.get("category")}
+            for m in (governance.get("measurements") or [])[:5]],
     }
 
 
@@ -2852,6 +2883,102 @@ def v10_defer_proposal(proposal_id: str, body: ProposalActionRequest = Body(defa
     if item is None:
         raise HTTPException(404, "Maintenance proposal not found.")
     return item
+
+
+# --------------------------------------------------- v10.2 policy governance
+# Additive governance views over the existing verified-principal boundary.
+# Current effective policy remains readable only through the existing engine
+# surface (/api/policy); these endpoints expose the governance lifecycle.
+@app.get("/api/v10/governance/adaptations")
+def v102_governance_adaptations(state: str | None = None, limit: int = 100,
+                                user_id: str | None = None,
+                                runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    return {"adaptations": runtime.cognition.policy_governance.list(
+        user, state=state, limit=limit)}
+
+
+@app.get("/api/v10/governance/adaptations/{adaptation_id}")
+def v102_governance_adaptation(adaptation_id: str, user_id: str | None = None,
+                               runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    item = runtime.cognition.policy_governance.get(user, adaptation_id)
+    if item is None:
+        raise HTTPException(404, "Governed adaptation not found.")
+    return {**item,
+            "history": runtime.cognition.policy_governance.history(user, adaptation_id)}
+
+
+@app.get("/api/v10/governance/adaptations/{adaptation_id}/measurements")
+def v102_governance_measurements(adaptation_id: str, user_id: str | None = None,
+                                 runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, provided=user_id)
+    try:
+        return runtime.cognition.policy_governance.measurements(user, adaptation_id)
+    except KeyError:
+        raise HTTPException(404, "Governed adaptation not found.")
+
+
+@app.post("/api/v10/governance/adaptations/{adaptation_id}/confirm")
+def v102_confirm_adaptation(adaptation_id: str,
+                            body: ProposalActionRequest = Body(default=ProposalActionRequest()),
+                            runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    if not body.confirmation:
+        raise HTTPException(400, "Explicit confirmation is required.")
+    try:
+        item = runtime.cognition.policy_governance.confirm(
+            user, adaptation_id, confirmation=body.confirmation,
+            reason=body.reason, correlation_id=get_request_id())
+    except KeyError:
+        raise HTTPException(404, "Governed adaptation not found.")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)[:300])
+    if "blocked" in item:  # AutonomyGovernor refused; nothing was claimed
+        raise HTTPException(409, "The autonomy governor blocked this confirmation.")
+    # V10.2 mirror of the V10.1 confirm → bounded re-audit pattern: exactly one
+    # bounded, observational re-evaluation of the adaptation's domain (depth 1,
+    # terminal `::pgov1` correlation). A failure is reported additively and
+    # never rolls back the already-applied canonical mutation.
+    revalidation = None
+    try:
+        revalidation = runtime.cognition.policy_runtime.revalidate_after_confirmation(
+            user, item, correlation_id=get_request_id())
+    except Exception as exc:  # pragma: no cover - defensive; must not 500
+        log.warning("Bounded governance re-evaluation failed for %s: %s",
+                    adaptation_id, exc)
+        revalidation = {"status": "FAILED", "error": str(exc)[:200]}
+    return {**item, "revalidation": revalidation}
+
+
+@app.post("/api/v10/governance/adaptations/{adaptation_id}/reject")
+def v102_reject_adaptation(adaptation_id: str,
+                           body: ProposalActionRequest = Body(default=ProposalActionRequest()),
+                           runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    try:
+        return runtime.cognition.policy_governance.reject(
+            user, adaptation_id, reason=body.reason or "user rejection",
+            correlation_id=get_request_id())
+    except KeyError:
+        raise HTTPException(404, "Governed adaptation not found.")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)[:300])
+
+
+@app.post("/api/v10/governance/adaptations/{adaptation_id}/defer")
+def v102_defer_adaptation(adaptation_id: str,
+                          body: ProposalActionRequest = Body(default=ProposalActionRequest()),
+                          runtime: Runtime = Depends(rt)):
+    user = _v10_user(runtime, write=True)
+    try:
+        return runtime.cognition.policy_governance.defer(
+            user, adaptation_id, reason=body.reason or "not now",
+            correlation_id=get_request_id())
+    except KeyError:
+        raise HTTPException(404, "Governed adaptation not found.")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)[:300])
 
 
 # -------------------------------------------------------------- maintenance

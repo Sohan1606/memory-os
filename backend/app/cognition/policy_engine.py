@@ -70,6 +70,18 @@ WEAK = 0.25    # inferred from behaviour
 WEAK_EVIDENCE_REQUIRED = 3
 MIN_CONFIDENCE_TO_APPLY = 0.45
 
+# V10.2 evidence origins. A governed adaptation accepted through the V10.2
+# confirmation boundary carries the same numeric strength as an explicit user
+# instruction (the user explicitly confirmed that exact change), but a DISTINCT
+# persisted origin label, so stored evidence never misreports a governed
+# adaptation as a direct user utterance. This is the whole of the V10.2
+# extension to this engine: every other rule — vocabulary validation, weak
+# accumulation, confidence, reversibility, canonical policy.* events — is
+# unchanged, and `apply_utterance()` keeps its exact released behavior.
+ORIGIN_USER = "user"
+ORIGIN_GOVERNED = "v10_2_governed_adaptation"
+ORIGINS = (ORIGIN_USER, ORIGIN_GOVERNED)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -175,12 +187,19 @@ class CognitivePolicyEngine:
     # --------------------------------------------------------------- mutation
     def observe(self, user_id: str, key: str, value: str, *,
                 strength: float, evidence: str,
-                correlation_id: str | None = None) -> dict[str, Any]:
+                correlation_id: str | None = None,
+                origin: str = ORIGIN_USER) -> dict[str, Any]:
         """
         Feed one observation into a policy dimension.
 
         Strong evidence applies immediately. Weak evidence accumulates and only
         changes the value once it has repeated WEAK_EVIDENCE_REQUIRED times.
+
+        `origin` records WHO the authority for this observation was: a direct
+        user utterance (default, unchanged released behavior) or a V10.2
+        governed adaptation the user explicitly confirmed. It changes only the
+        persisted provenance label and the reason phrasing — never the
+        accumulation, confidence or application rules.
         """
         dim = DIMENSIONS.get(key)
         if dim is None:
@@ -189,11 +208,14 @@ class CognitivePolicyEngine:
             raise ValueError(
                 f"Value {value!r} is not valid for {key!r}; expected one of "
                 f"{list(dim.values)}")
+        if origin not in ORIGINS:
+            raise ValueError(f"Unknown policy evidence origin: {origin!r}")
 
         current = self.get(user_id, key)
         prior_evidence: list[dict[str, Any]] = list(current["evidence"])
         prior_evidence.append({"value": value, "strength": round(strength, 2),
-                               "evidence": evidence[:240], "at": _now()})
+                               "evidence": evidence[:240], "at": _now(),
+                               "origin": origin})
         prior_evidence = prior_evidence[-12:]
 
         # Count only evidence pointing at the proposed value.
@@ -204,7 +226,10 @@ class CognitivePolicyEngine:
         if strong_hit:
             new_value = value
             applied = True
-            reason = f"You told me directly: \"{evidence[:160]}\""
+            reason = (
+                f"You told me directly: \"{evidence[:160]}\""
+                if origin == ORIGIN_USER else
+                f"Adaptation you confirmed: \"{evidence[:160]}\"")
         elif weak_support >= WEAK_EVIDENCE_REQUIRED:
             new_value = value
             applied = True
@@ -232,7 +257,8 @@ class CognitivePolicyEngine:
                 correlation_id=correlation_id,
                 payload={"key": key, "from": current["value"], "to": new_value,
                          "confidence": round(confidence, 3), "reason": reason,
-                         "evidence_count": len(prior_evidence)})
+                         "evidence_count": len(prior_evidence),
+                         "origin": origin})
         elif not applied:
             self.bus.emit(
                 user_id, "policy.proposed",

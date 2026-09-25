@@ -66,6 +66,8 @@ TABLES = (
     "cognitive_debt", "contradiction_records", "unknown_records",
     "model_error_records", "maintenance_proposals", "cognitive_health_snapshots",
     "maintenance_runs", "policy_governance", "policy_governance_history",
+    "policy_governance_runs", "policy_governance_consultations",
+    "policy_governance_observations",
 )
 
 TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
@@ -81,8 +83,15 @@ TABLE_DOMAINS: dict[str, tuple[str, ...]] = {
     "decisions": ("decisions", "causality"),
     "trust_records": ("user_model",), "capability_trust": ("user_model",),
     "memory_reputation": ("memories", "user_model"), "policies": ("user_model",),
+    # V10.2 governance records: additive section of the same export format —
+    # adaptations, lifecycle history, bounded-run ledger, consultations and
+    # effectiveness observations. Never a second export format, and never a
+    # competing effective-policy store (current values stay in `policies`).
     "policy_governance": ("user_model", "events"),
     "policy_governance_history": ("user_model", "events"),
+    "policy_governance_runs": ("user_model", "events"),
+    "policy_governance_consultations": ("user_model", "events"),
+    "policy_governance_observations": ("user_model", "events"),
     "sandbox_runs": ("events",), "interventions": ("user_model", "events"),
     "arbitration_records": ("events",), "memory_influences": ("memories", "events"),
     "need_hypotheses": ("needs",), "execution_traces": ("events",),
@@ -764,9 +773,13 @@ class PortabilityService:
                     errors.append(f"Record in {table} has a different tenant scope.")
         v10_tables = {"cognitive_debt", "contradiction_records", "unknown_records",
                       "model_error_records", "maintenance_proposals",
-                      "cognitive_health_snapshots", "maintenance_runs"}
+                      "cognitive_health_snapshots", "maintenance_runs",
+                      "policy_governance", "policy_governance_history",
+                      "policy_governance_runs", "policy_governance_consultations",
+                      "policy_governance_observations"}
         if any(rows_by_table.get(table) for table in v10_tables) and not manifest.get("tenant_id"):
-            errors.append("V10 maintenance rows require an explicit manifest tenant scope.")
+            errors.append("V10 maintenance and governance rows require an "
+                          "explicit manifest tenant scope.")
         relationship_count = sum(len(rows_by_table.get(table, [])) for table in
                                  ("memory_relationships", "world_links", "mission_links", "causal_links"))
         if relationship_count > self.limits["relationships"]:
@@ -826,6 +839,29 @@ class PortabilityService:
         for row in rows_by_table.get("maintenance_proposals", []):
             linked.extend(("maintenance_proposals.target_object_ids", x)
                           for x in json_value(row, "target_object_ids_json", []))
+        # V10.2 governance records: the frozen adaptation evidence on every
+        # governance row must resolve inside this package or in the same
+        # authenticated canonical namespace — restore never creates dangling
+        # evidence references. History, consultation and observation rows must
+        # reference an adaptation present in the package or already live.
+        for row in rows_by_table.get("policy_governance", []):
+            linked.extend(("policy_governance.evidence_refs", x.get("id"))
+                          for x in json_value(row, "evidence_refs", [])
+                          if isinstance(x, dict))
+        governance_ids = {str(row.get("id")) for row in
+                          rows_by_table.get("policy_governance", [])}
+        for table in ("policy_governance_history",
+                      "policy_governance_consultations",
+                      "policy_governance_observations"):
+            for row in rows_by_table.get(table, []):
+                ref = row.get("candidate_id") or row.get("adaptation_id")
+                if ref in (None, "", "null"):
+                    continue
+                if str(ref) not in governance_ids and not self.db.query_one(
+                        "SELECT 1 FROM policy_governance WHERE id=? AND user_id=?",
+                        (ref, user_id)):
+                    errors.append(f"{table} references a missing governed "
+                                  f"adaptation: {ref}")
         for label, ref in linked:
             if ref in (None, "", "null"):
                 continue
