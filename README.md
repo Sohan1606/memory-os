@@ -78,6 +78,15 @@ Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
 
+## V10.2 real-model gate
+
+V10.2 deterministic CORE/RUNTIME evidence and real Ollama evidence are marked
+and reported separately. The real gate never treats demo or deterministic
+fallback as verification, and reports an unavailable environment as **NOT
+CONNECTED / NOT VERIFIED**. Configuration, exact commands, verified scope, and
+the legitimately deferred ACTIVE-adaptation boundary are documented in
+[`docs/V10.2-REAL-MODEL-GATE.md`](docs/V10.2-REAL-MODEL-GATE.md).
+
 ## New in V9.0.2
 
 - **Native Ollama structured semantics:** the existing local provider now uses

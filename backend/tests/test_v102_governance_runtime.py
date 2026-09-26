@@ -12,6 +12,10 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.v102_deterministic
+
 from app.config import Settings
 from app.cognition.events import EVENT_TYPES
 from app.runtime import Runtime
