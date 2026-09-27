@@ -1,7 +1,14 @@
 # MEMORY//OS
 
-**MEMORY//OS V10.1.0 — Cognitive Self-Maintenance runtime integration.
-Released and current (tag `v10.1.0`, merged to `main`).**
+**MEMORY//OS V10.2.0 — Evidence-Governed Adaptive Cognitive Policy.
+Current on `main`; release metadata hardened for the pending `v10.2.0` tag and
+release.**
+
+V10.2 governs evidence-backed policy adaptation above the existing
+`CognitivePolicyEngine`, preserves the `AutonomyGovernor` confirmation
+boundary, and keeps deterministic and real-model verification separate. See
+[`docs/V10.2-IMPLEMENTATION-STATUS.md`](docs/V10.2-IMPLEMENTATION-STATUS.md)
+and [`docs/V10.2-VERIFICATION.md`](docs/V10.2-VERIFICATION.md).
 
 The V10.0.1 core (the prior release, now the baseline) added evidence-backed
 cognitive debt, proposition-aware contradiction records, explicit unknowns,

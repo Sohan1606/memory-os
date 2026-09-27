@@ -1,13 +1,44 @@
 # PROJECT STATUS
 
-## V10.1.0 — RELEASED (current release)
+## V10.2.0 — RELEASE READY (current mainline)
+
+V10.2 Evidence-Governed Adaptive Cognitive Policy is integrated on `main` and
+has completed release hardening. The repository metadata now identifies the
+running slice as `release: "10.2.0"` while preserving the established
+compatibility contract `version: "8.2"`. The tag and GitHub release are still
+pending manual release action; this status does not claim that either exists.
+
+V10.2 adds evidence-governed policy evolution above the existing
+`CognitivePolicyEngine`; it does not replace the engine or alter the
+`AutonomyGovernor`. Deterministic CORE/RUNTIME evidence, local real-Ollama
+evidence, clean-room verification, and browser verification are reported as
+separate gates in [`docs/V10.2-VERIFICATION.md`](docs/V10.2-VERIFICATION.md).
+The real-model gate used `llama3.2:3b` and never substitutes deterministic
+fallback for model evidence. A freshly manufactured ACTIVE adaptation remains
+legitimately deferred because the ATTENTION gate requires three independent
+episodes across two days.
+
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| V10.2 deterministic CORE | **PASS** | `test_v102_governance_core.py` — 41 passed |
+| V10.2 deterministic RUNTIME | **PASS** | `test_v102_governance_runtime.py` — 18 passed |
+| V10.1 integration regression | **PASS** | `test_v101_runtime_integration.py` — 34 passed; historical integration remains enabled |
+| Real model | **CONNECTED / VERIFIED locally** | Dedicated `slow`/`v102_real_model` gate with Ollama `llama3.2:3b`; no demo/degraded fallback |
+| Full backend non-slow | **PASS** | 1080 passed, 10 environment-gated skips, 14 slow tests deselected |
+| Frontend | **PASS** | Typecheck and production build |
+| Clean room | **PASS** | Independently verified from a clean transfer; deterministic and real-model claims retained separately |
+| Browser | **PASS** | V10.2 browser QA completed with zero failures |
+| Health metadata | **PASS** | `version: "8.2"`, `release: "10.2.0"`, V10.1 runtime integration true, V10.2 governance enabled |
+| Tag / release | **PENDING** | Intentionally not created during release hardening |
+
+## V10.1.0 — RELEASED (historical release)
 
 V10.1 Cognitive Self-Maintenance Runtime Integration is **merged into
 `main`** (PR #14; merge commit
 `5fdb5988095c6945aba8b7fec79f9d99bbc71d4e`) and **tagged/released as
-`v10.1.0`**. The current `main` release is V10.1.0. The runtime reports it
-truthfully: health `version: "8.2"` (preserved compatibility contract) and
-`release: "10.1.0"`.
+`v10.1.0`**. It was the current `main` release before V10.2. This historical
+section records the health contract at that release: `version: "8.2"`
+(preserved compatibility marker) and `release: "10.1.0"`.
 
 ## V10.1 PR #14 correctness fix (2026-09-24)
 

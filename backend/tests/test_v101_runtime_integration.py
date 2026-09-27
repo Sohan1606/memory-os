@@ -554,18 +554,18 @@ def test_v101_events_are_registered_and_bounded():
         assert etype in EVENT_TYPES
 
 
-def test_health_reports_v10_release_and_runtime_integration():
-    """Regression: the released V10.1.0 slice must be reported truthfully.
+def test_health_reports_current_release_and_v101_runtime_integration():
+    """The current release marker advances without rewriting V10.1 history.
 
     `version` stays "8.2" (established API-compatibility contract marker);
-    `release` is the released-slice marker and must be "10.1.0" after the
-    V10.1 merge/tag/release.
+    `release` identifies the current V10.2 slice, while this V10.1 regression
+    continues to prove that maintenance runtime integration remains enabled.
     """
     rt, root = make_runtime()
     try:
         health = rt.health()
         assert health["version"] == "8.2"  # preserved compatibility marker
-        assert health["release"] == "10.1.0"  # released V10.1.0 slice
+        assert health["release"] == "10.2.0"  # current V10.2 release marker
         assert health["cognition"]["v10"]["runtime_integration"] is True
     finally:
         rt.close(); shutil.rmtree(root, ignore_errors=True)

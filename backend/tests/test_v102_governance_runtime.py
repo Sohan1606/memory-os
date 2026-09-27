@@ -519,7 +519,7 @@ def test_health_reports_v10_2_marker():
     rt, root = make_runtime("v102-health-")
     try:
         health = rt.health()
-        assert health["release"] == "10.1.0"  # never bumped by V10.2
+        assert health["release"] == "10.2.0"  # current V10.2 release marker
         assert health["version"] == "8.2"      # preserved compatibility marker
         marker = health["cognition"]["v10"]["v10_2_governance"]
         assert marker["enabled"] is True
