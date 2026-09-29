@@ -1,0 +1,375 @@
+{
+  "console_errors": {
+    "/": [],
+    "/workspace": [],
+    "/memory": [],
+    "/actions": [],
+    "/capabilities": [],
+    "/audit": [],
+    "/devices": [],
+    "/system": [],
+    "/observatory": []
+  },
+  "truth": {
+    "/": {
+      "ZORQ": true,
+      "SYSTEM INTELLIGENCE": true,
+      "LOCAL": true,
+      "MEMORY//OS": true,
+      "OPEN THE WORKSPACE": true,
+      "DETERMINISTIC FALLBACK": true,
+      "INTELLIGENCE": true,
+      "ACTION GATE": true
+    },
+    "/workspace": {
+      "Workspace": true,
+      "ASK ZORQ": true,
+      "OBSERVE": true,
+      "UNDERSTAND": true,
+      "ANALYZE": true,
+      "DECIDE": true,
+      "PROPOSE": true,
+      "AUTHORIZE": true,
+      "VERIFY": true,
+      "INTELLIGENCE": true,
+      "ACTION GATE": true,
+      "MODEL CONFIDENCE \u2260 AUTHORIZATION": true
+    },
+    "/memory": {
+      "MEMORY & CONTEXT": true,
+      "CANONICAL": true,
+      "MEMORY RETRIEVAL \u2260 MEMORY GOVERNANCE": true
+    },
+    "/actions": {
+      "ACTIONS & VERIFICATION": true,
+      "PROPOSED": true,
+      "No action records": true,
+      "EXECUTION \u2260 VERIFIED OUTCOME": true
+    },
+    "/capabilities": {
+      "Capabilities": true,
+      "VISIBLE": true,
+      "AUTHORIZED": true,
+      "EXECUTABLE": true,
+      "Visibility is not permission": true
+    },
+    "/audit": {
+      "Audit trail": true,
+      "VERIFIED": true,
+      "chain": true
+    },
+    "/devices": {
+      "DEVICES & CONNECTIVITY": true,
+      "NOT-CONFIGURED": true,
+      "None enrolled": true,
+      "DEVICE TRUST \u2260 USER AUTHORIZATION": true
+    },
+    "/system": {
+      "System": true,
+      "DETERMINISTIC FALLBACK": true,
+      "Boundary": true,
+      "Never faked": true
+    },
+    "/observatory": {
+      "ZORQ core": true,
+      "Planes": true,
+      "The system, inspectable": true
+    }
+  },
+  "forbidden": {
+    "/": [],
+    "/workspace": [],
+    "/memory": [],
+    "/actions": [],
+    "/capabilities": [],
+    "/audit": [],
+    "/devices": [],
+    "/system": [],
+    "/observatory": []
+  },
+  "a11y": {
+    "first_tab_focus": "skip-link | Skip to content",
+    "landmarks": [
+      1,
+      1,
+      1,
+      0
+    ],
+    "html_lang": "en",
+    "imgs_missing_alt": 0,
+    "h1_counts": {
+      "/": 1,
+      "/workspace": 1,
+      "/memory": 1,
+      "/actions": 1,
+      "/capabilities": 1,
+      "/audit": 1,
+      "/devices": 1,
+      "/system": 1,
+      "/observatory": 1
+    },
+    "desktop_nav_visible": true,
+    "desktop_menu_button_present": false,
+    "desktop_nav_links": [
+      "/",
+      "/workspace",
+      "/memory",
+      "/observatory",
+      "/actions",
+      "/capabilities",
+      "/audit",
+      "/system",
+      "/devices"
+    ]
+  },
+  "mobile": {
+    "/": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/workspace": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/memory": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/actions": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/capabilities": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/audit": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/devices": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/system": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "/observatory": {
+      "h_overflow_px": 0,
+      "console_errors": []
+    },
+    "header_position": "fixed",
+    "content_below_header": true,
+    "nav_dialog_opens": true,
+    "nav_touch_target_heights": [
+      48,
+      48,
+      48,
+      48,
+      48,
+      48,
+      48,
+      48,
+      48
+    ],
+    "nav_dialog_links": [
+      "/",
+      "/workspace",
+      "/memory",
+      "/observatory",
+      "/actions",
+      "/capabilities",
+      "/audit",
+      "/system",
+      "/devices"
+    ],
+    "chat_input": {
+      "visible": true,
+      "w": 87,
+      "h": 44
+    },
+    "rail_visible": true,
+    "architecture_redirect": "http://127.0.0.1:3000/system"
+  },
+  "regressions": {
+    "provider_fallback_/": true,
+    "provider_never_real_/": true,
+    "provider_fallback_/workspace": true,
+    "provider_never_real_/workspace": true,
+    "provider_fallback_/system": true,
+    "provider_never_real_/system": true,
+    "provider_fallback_/observatory": true,
+    "provider_never_real_/observatory": true,
+    "provider_unreachable_badges": [
+      "PROVIDER \u00b7 UNKNOWN"
+    ],
+    "completed_vs_verified_tones": {
+      "COMPLETED": "complete",
+      "VERIFIED": "ok"
+    },
+    "local_pulse_attrs": [
+      null,
+      null
+    ],
+    "metadata_badges": {
+      "/memory": {
+        "asMeta": true,
+        "asState": false
+      },
+      "/actions": {
+        "asMeta": true,
+        "asState": false
+      },
+      "/capabilities": {
+        "asMeta": true,
+        "asState": false
+      }
+    },
+    "nav_groups": [
+      "Work",
+      "Control",
+      "Runtime"
+    ]
+  },
+  "functional": {
+    "response_visible": true,
+    "rail_after_durable_turn": {
+      "OBSERVE": "evidenced",
+      "UNDERSTAND": "evidenced",
+      "ANALYZE": "evidenced",
+      "DECIDE": "evidenced",
+      "PROPOSE": "dormant",
+      "AUTHORIZE": "dormant",
+      "ACT": "dormant",
+      "VERIFY": "dormant"
+    },
+    "turn_labels": [
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "YOU",
+      "ZORQ",
+      "Cognitive surface",
+      "Personal state changed"
+    ],
+    "semantic_save_memory_no_propose": true,
+    "semantic_model_call_no_propose": true,
+    "rail_groups": [
+      "INTELLIGENCE",
+      "ACTION GATE"
+    ],
+    "rail_after_ordinary_turn": {
+      "OBSERVE": "evidenced",
+      "UNDERSTAND": "evidenced",
+      "ANALYZE": "evidenced",
+      "DECIDE": "dormant",
+      "PROPOSE": "dormant",
+      "AUTHORIZE": "dormant",
+      "ACT": "dormant",
+      "VERIFY": "dormant"
+    },
+    "ordinary_reply_excerpt": "ZORQ\n\nI do not have a model provider configured, so I will not guess at that. You can ask me what I have on record, or connect a provider for general questions.\n\nCOGNITIVE SURFACE\n\nDEGRADED\nlistening\nCOMPLETED\nUnderstand",
+    "memory_query_reply_excerpt": "ZORQ\n\nHere is what I remember:\n- I prefer full browser verification before every ZORQ release. (Preference, relevance 60%)\n- I prefer ZORQ refinement-pass browser verification over assumptions. (Preference, relevance 56%",
+    "rail_after_action_proposal_fixture": {
+      "OBSERVE": "evidenced",
+      "UNDERSTAND": "evidenced",
+      "ANALYZE": "evidenced",
+      "DECIDE": "evidenced",
+      "PROPOSE": "evidenced",
+      "AUTHORIZE": "dormant",
+      "ACT": "dormant",
+      "VERIFY": "dormant"
+    },
+    "fixture_console_errors": [],
+    "rail_after_cognition_only_fixture": {
+      "OBSERVE": "evidenced",
+      "UNDERSTAND": "evidenced",
+      "ANALYZE": "evidenced",
+      "DECIDE": "dormant",
+      "PROPOSE": "dormant",
+      "AUTHORIZE": "dormant",
+      "ACT": "dormant",
+      "VERIFY": "dormant"
+    },
+    "chat_turn_console_errors": [],
+    "durable_memory_visible": true
+  },
+  "shots": [
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-workspace.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-memory.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-actions.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-capabilities.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-audit.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-devices.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-system.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/desktop-observatory.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-workspace.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-memory.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-actions.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-capabilities.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-audit.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-devices.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-system.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-observatory.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/mobile-nav-dialog.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/functional-workspace-chat.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/functional-workspace-ordinary-turn.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/functional-workspace-memory-query.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/functional-workspace-cognition-only-fixture.png",
+    "/home/user/repo/docs/zorq/qa/zui1-browser-evidence/functional-memory-after-chat.png"
+  ]
+}

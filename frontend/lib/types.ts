@@ -1104,3 +1104,177 @@ export interface RateLimitState {
   limits_per_minute: Record<string, number>;
   active_buckets: number;
 }
+
+/* ============================================================
+   ZORQ state facade types (Phase Z-UI.1, WP-UI-1 — DQ-16)
+   §12.1.1 state vocabularies as typed frontend contracts.
+   ============================================================ */
+
+export type ConnectionState =
+  | "LOCAL" | "ONLINE" | "OFFLINE" | "DEGRADED" | "UNKNOWN" | "UNAVAILABLE" | "SYNCING";
+export type ExecutionOrigin = "LOCAL" | "REMOTE" | "DELEGATED";
+export type SyncState =
+  | "SYNCED" | "SYNCING" | "PENDING" | "CONFLICT" | "FAILED" | "NOT-CONFIGURED";
+export type CapabilityLevel =
+  | "VISIBLE" | "AVAILABLE" | "AUTHORIZED" | "EXECUTABLE" | "VERIFIED OUTCOME";
+export type SystemCondition =
+  | "LOADING" | "READY" | "ERROR" | "UNKNOWN" | "UNAVAILABLE"
+  | "NOT-CONFIGURED" | "NOT-IMPLEMENTED" | "OFFLINE" | "DEGRADED";
+
+export interface ZorqUnavailable {
+  available: false;
+  status: "UNAVAILABLE";
+  reason: string;
+  identity?: string;
+}
+
+export interface ZorqPlane {
+  plane: string;
+  status: string;
+  status_note?: string;
+  responsibility: string;
+  boundary: string;
+}
+
+export interface ZorqMemoryIntegration {
+  canonical_authority: string;
+  canonical_authority_note?: string;
+  production_adapter: {
+    contract_version?: string;
+    integration_status: string;
+    verification_record?: string;
+    reason?: string;
+  };
+}
+
+export interface ZorqRuntime {
+  connection: ConnectionState;
+  connection_note: string;
+  execution_origins: Record<ExecutionOrigin, string>;
+  sync: SyncState;
+  sync_note: string;
+  devices: string;
+  voice: { state: string; phase: string; note: string };
+  multimodal: { state: string; phase: string; note: string };
+}
+
+export interface ZorqStatus {
+  available: true;
+  identity: string;
+  package: string;
+  package_version: string;
+  core: {
+    boot_event_id: string | null;
+    booted_at: string | null;
+    security_epoch: number;
+    filesystem_posture: string;
+    active_sessions: number;
+    sessions_note: string;
+    audit_integrity: boolean;
+  };
+  planes: ZorqPlane[];
+  memory_integration: ZorqMemoryIntegration;
+  runtime: ZorqRuntime;
+  capabilities_summary: {
+    count: number;
+    registry_digest: string;
+    visibility_note: string;
+  };
+}
+
+export interface ZorqCapabilityLadder {
+  visible: boolean;
+  available: boolean;
+  available_note?: string;
+  authorized: boolean | "SESSION-BOUND";
+  authorized_note?: string;
+  executable: boolean;
+  executable_note?: string;
+}
+
+export interface ZorqCapability {
+  capability_id: string;
+  version: string;
+  operations: string[];
+  permissions: string[];
+  risk: string;
+  confirmation_mode: string;
+  verification: string;
+  cancellation: string;
+  timeout_seconds: number;
+  requires_memory_governance: boolean;
+  state: string;
+  description: string;
+  ladder: ZorqCapabilityLadder;
+}
+
+export interface ZorqCapabilities {
+  available: true;
+  registry_digest: string;
+  sealed: boolean;
+  visibility_note: string;
+  ladder_model: { level: CapabilityLevel; meaning: string }[];
+  capabilities: ZorqCapability[];
+}
+
+export interface ZorqActions {
+  available: true;
+  lifecycle: { phase: string; meaning: string }[];
+  status_vocabulary: string[];
+  records: unknown[];
+  records_note: string;
+  execution_origins: Record<ExecutionOrigin, string>;
+  one_click_prohibition: string;
+}
+
+export interface ZorqAuditEvent {
+  sequence: number;
+  event_id: string;
+  event_type: string;
+  timestamp: string;
+  actor: string;
+  action_id: string | null;
+  payload: Record<string, unknown>;
+  event_hash: string;
+}
+
+export interface ZorqAudit {
+  available: true;
+  integrity_verified: boolean;
+  chain: string;
+  persistence: string;
+  scope_note: string;
+  events: ZorqAuditEvent[];
+}
+
+export interface ZorqDevices {
+  available: true;
+  current_device: {
+    device_id: string;
+    owner_id: string;
+    device_class: string;
+    trust_tier: string;
+    agent_version: string;
+    attested: boolean;
+  };
+  connection: ConnectionState;
+  execution_origin: ExecutionOrigin;
+  sync: SyncState;
+  sync_note: string;
+  authorized_devices: unknown[];
+  authorized_devices_note: string;
+  available_devices: unknown[];
+  available_devices_note: string;
+  distinctions: string[];
+  state_vocabularies: {
+    connection: ConnectionState[];
+    execution: ExecutionOrigin[];
+    sync: SyncState[];
+  };
+}
+
+export type ZorqStatusResponse = ZorqStatus | ZorqUnavailable;
+export type ZorqCapabilitiesResponse = ZorqCapabilities | ZorqUnavailable;
+export type ZorqActionsResponse = ZorqActions | ZorqUnavailable;
+export type ZorqAuditResponse = ZorqAudit | ZorqUnavailable;
+export type ZorqDevicesResponse = ZorqDevices | ZorqUnavailable;

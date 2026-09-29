@@ -1,13 +1,31 @@
 # Integration tests
 
 Backend unit and integration tests live in [`../backend/tests/`](../backend/tests).
-This directory holds cross-stack browser suites that exercise the built frontend
-against the real backend.
+This directory holds two kinds of suites: the **ZORQ unittest suites** and the
+**cross-stack browser suites**.
 
-## `browser_qa.py`
+## ZORQ unittest suites
 
-End-to-end QA with Playwright/Chromium. It drives the rendered application and
-its same-origin HTTP boundary; it does not mock the API or write directly to the
+`test_*.py` files here are the ZORQ control-plane suite (276 tests at Phase
+3B.2). Run them with:
+
+```bash
+python -m unittest discover -s tests
+```
+
+They are deterministic, offline, and need no API keys: the Action Plane
+(authorization, snapshots, leases, verification), domain contracts, personal
+continuity + the production MEMORY//OS adapter (`test_phase3b2_memoryos_adapter.py`
+runs the real `backend/` service layer in process against temporary SQLite
+databases), and the conversational runtime. One class is Windows-only and
+self-skips on Linux (8 skips); symlink fixtures self-skip on Windows without
+developer mode.
+
+## Browser QA suites
+
+The `*_qa.py` / `v8*_browser_qa.py` scripts are end-to-end QA with
+Playwright/Chromium. They drive the rendered application and
+its same-origin HTTP boundary; they do not mock the API or write directly to the
 database.
 
 Coverage includes:

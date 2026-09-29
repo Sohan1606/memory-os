@@ -256,7 +256,7 @@ export default function ResearchPanel({ refreshKey }: { refreshKey: number }) {
                       <StateBadge value={fetchStateTone(f.status)} title={f.status} />
                     </div>
                     {f.error_code && (
-                      <p style={{ margin: "0.3rem 0 0", fontSize: "0.74rem", color: "#e88a7a" }}>
+                      <p style={{ margin: "0.3rem 0 0", fontSize: "0.74rem", color: "var(--z-fail)" }}>
                         {f.error_code}: {f.error_detail}
                       </p>
                     )}
@@ -335,8 +335,8 @@ export default function ResearchPanel({ refreshKey }: { refreshKey: number }) {
                 <div>
                   <h4 style={sectionHeading}>Conflicts ({conflicts.length})</h4>
                   {conflicts.map((cf) => (
-                    <div key={cf.id} style={{ ...rowCard, borderLeft: "2px solid #e88a7a" }}>
-                      <p style={{ margin: 0, fontSize: "0.78rem", color: "#e88a7a" }}>{cf.reason}</p>
+                    <div key={cf.id} style={{ ...rowCard, borderLeft: "2px solid var(--z-fail)" }}>
+                      <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--z-fail)" }}>{cf.reason}</p>
                       <span style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--muted)" }}>
                         {cf.claim_ids.length} conflicting claim(s) — both preserved, neither silently discarded.
                       </span>

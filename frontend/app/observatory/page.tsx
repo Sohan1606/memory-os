@@ -29,6 +29,7 @@ import SelfPanel from "@/components/observatory/SelfPanel";
 import SystemHealthPanel from "@/components/observatory/SystemHealthPanel";
 import WhyInspector from "@/components/observatory/WhyInspector";
 import WorldPanel from "@/components/observatory/WorldPanel";
+import ZorqCorePanel from "@/components/observatory/ZorqCorePanel";
 import { Empty, Panel, Row, StateBadge } from "@/components/observatory/primitives";
 import { api } from "@/lib/api";
 import type { CognitionStatus, ResumeBriefing } from "@/lib/types";
@@ -97,7 +98,7 @@ export default function ObservatoryPage() {
           border: "1px solid rgba(232,138,122,0.32)", borderRadius: 4,
           padding: "1rem", marginBottom: "2rem",
         }}>
-          <p style={{ fontSize: "0.85rem", color: "#e88a7a", margin: 0 }}>
+          <p style={{ fontSize: "0.85rem", color: "var(--z-fail)", margin: 0 }}>
             {error} The backend may not be running — start it and this page will recover.
           </p>
         </div>
@@ -115,6 +116,7 @@ export default function ObservatoryPage() {
         display: "grid", gap: "1.5rem",
         gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
       }}>
+        <ZorqCorePanel />
         <SemanticStatePanel refreshKey={refreshKey} />
         <SecurityPanel refreshKey={refreshKey} />
         <SystemHealthPanel refreshKey={refreshKey} />

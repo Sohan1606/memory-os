@@ -23,6 +23,8 @@ import type {
   AuthSessionResponse, ReadinessReport, MetricsSnapshot, SecurityEvent,
   RateLimitState, CognitiveObject, PersonalState, MeaningCompilation,
   LiveSurfaceState,
+  ZorqStatusResponse, ZorqCapabilitiesResponse, ZorqActionsResponse,
+  ZorqAuditResponse, ZorqDevicesResponse,
 } from "./types";
 
 export class ApiError extends Error {
@@ -596,4 +598,18 @@ export const api = {
     request<{ events: SecurityEvent[] }>("/api/admin/security-events"),
 
   rateLimitState: () => request<RateLimitState>("/api/admin/rate-limit"),
+};
+
+/* ------------------------------------------- ZORQ state facade (WP-UI-1) */
+
+function zorq<T extends { available: boolean }>(path: string): Promise<T> {
+  return request<T>(path);
+}
+
+export const zorqApi = {
+  status: () => zorq<ZorqStatusResponse>("/api/zorq/status"),
+  capabilities: () => zorq<ZorqCapabilitiesResponse>("/api/zorq/capabilities"),
+  actions: () => zorq<ZorqActionsResponse>("/api/zorq/actions"),
+  audit: () => zorq<ZorqAuditResponse>("/api/zorq/audit"),
+  devices: () => zorq<ZorqDevicesResponse>("/api/zorq/devices"),
 };

@@ -1,26 +1,47 @@
 "use client";
+/**
+ * Slim ZORQ footer: identity, subsystem credit, live state line.
+ * No marketing framing (retired with the showcase composition in WP-UI-2).
+ */
 import Link from "next/link";
 
 import { useMemoryStore } from "@/hooks/useMemoryStore";
 
+const LINKS = [
+  { href: "/workspace", label: "Workspace" },
+  { href: "/memory", label: "Memory" },
+  { href: "/actions", label: "Actions" },
+  { href: "/capabilities", label: "Capabilities" },
+  { href: "/audit", label: "Audit" },
+  { href: "/devices", label: "Devices" },
+  { href: "/system", label: "System" },
+  { href: "/observatory", label: "Observatory" },
+];
+
 export default function Footer() {
   const { health } = useMemoryStore();
   return (
-    <footer style={{ borderTop: "1px solid var(--line)", padding: "clamp(4rem, 9vh, 7rem) var(--pad) 3rem" }}>
-      <div style={{ maxWidth: "var(--maxw)", margin: "0 auto" }}>
-        <h2 className="headline" style={{ maxWidth: "16ch" }}>
-          Give your agent a memory it can defend.
-        </h2>
-        <div style={{ display: "flex", gap: "0.7rem", flexWrap: "wrap", marginTop: "2.2rem" }}>
-          <Link href="/workspace" className="btn btn-primary" data-cursor="cta">Open the workspace</Link>
-          <Link href="/architecture" className="btn">Read the architecture</Link>
+    <footer style={{ borderTop: "1px solid var(--z-line)", padding: "2.2rem var(--pad) 2rem", marginTop: "2rem" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "2rem", flexWrap: "wrap", alignItems: "baseline" }}>
+          <span style={{
+            fontFamily: "var(--mono)", fontSize: "0.78rem", fontWeight: 600,
+            letterSpacing: "0.26em", color: "var(--z-ink-2)",
+          }}>ZORQ</span>
+          <nav aria-label="Footer" style={{ display: "flex", gap: "1.1rem", flexWrap: "wrap" }}>
+            {LINKS.map((l) => (
+              <Link key={l.href} href={l.href} className="z-nav-link">{l.label}</Link>
+            ))}
+          </nav>
         </div>
-
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "2rem",
-                      flexWrap: "wrap", marginTop: "5rem",
-                      borderTop: "1px solid var(--line)", paddingTop: "2rem" }}>
-          <p className="mono" style={{ color: "var(--muted)" }}>MEMORY//OS · local-first agent memory</p>
-          <p className="mono" style={{ color: "var(--muted)" }}>
+        <div style={{
+          display: "flex", justifyContent: "space-between", gap: "1.5rem", flexWrap: "wrap",
+          marginTop: "1.4rem", paddingTop: "1.1rem", borderTop: "1px solid var(--z-line)",
+        }}>
+          <p className="mono" style={{ color: "var(--z-ink-3)", margin: 0 }}>
+            Memory &amp; governance — <span style={{ color: "var(--accent)" }}>MEMORY//OS</span>
+          </p>
+          <p className="mono" style={{ color: "var(--z-ink-3)", margin: 0 }}>
             {health
               ? `${health.provider.name.toUpperCase()} · ${health.vector.mode.toUpperCase()} · CKPT ${health.agent.checkpointer.toUpperCase()}`
               : "connecting…"}

@@ -62,7 +62,24 @@ const ACTIVITY_LABEL: Record<string, string> = {
   EXPLAIN: "Evidence gathered",
 };
 
-export default function Chat({ threadId }: { threadId: string }) {
+/**
+ * The agent's activity list accumulates across a thread's turns (LangGraph
+ * checkpoint state). Each turn begins with a LOAD_CONTEXT marker, so the
+ * CURRENT turn's evidence — the only thing the intelligence rail may render —
+ * is the segment from the LAST LOAD_CONTEXT onward. Without this slice,
+ * events from earlier turns (e.g. a previous TOOL_DECISION) would falsely
+ * evidence stages of the current turn.
+ */
+function currentTurnActivity(activity: ChatActivity[]): ChatActivity[] {
+  const idx = activity.map((a) => a.type).lastIndexOf("LOAD_CONTEXT");
+  return idx >= 0 ? activity.slice(idx) : activity;
+}
+
+export default function Chat({
+  threadId, onTurn,
+}: { threadId: string; onTurn?: (turn: {
+  activity: ChatActivity[]; recalledCount: number; busy: boolean;
+} | null) => void }) {
   const { refresh, health, select } = useMemoryStore();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -76,6 +93,7 @@ export default function Chat({ threadId }: { threadId: string }) {
   useEffect(() => {
     let cancelled = false;
     setTurns([]);
+    onTurn?.(null);
     api.threadMessages(threadId)
       .then((d) => {
         if (cancelled) return;
@@ -85,7 +103,7 @@ export default function Chat({ threadId }: { threadId: string }) {
       })
       .catch(() => { /* new thread */ });
     return () => { cancelled = true; };
-  }, [threadId]);
+  }, [threadId, onTurn]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [turns]);
   useEffect(() => {
@@ -99,6 +117,7 @@ export default function Chat({ threadId }: { threadId: string }) {
     setError(null);
     setTurns((t) => [...t, { role: "user", content: message }]);
     setBusy(true);
+    onTurn?.({ activity: [], recalledCount: 0, busy: true });
     let poll: ReturnType<typeof setInterval> | null = null;
     try {
       const mode = inputMode;
@@ -116,6 +135,11 @@ export default function Chat({ threadId }: { threadId: string }) {
         recalled: res.recalled, activity: res.activity,
         cognition: res.cognition, surface: res.surface,
       }]);
+      onTurn?.({
+        activity: currentTurnActivity(res.activity ?? []),
+        recalledCount: (res.recalled ?? []).length,
+        busy: false,
+      });
       if (mode === "voice" && typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(new SpeechSynthesisUtterance(res.answer));
@@ -130,25 +154,23 @@ export default function Chat({ threadId }: { threadId: string }) {
       setLiveSurface(null);
       setBusy(false);
     }
-  }, [input, busy, threadId, refresh, inputMode, speech]);
+  }, [input, busy, threadId, refresh, inputMode, speech, onTurn]);
 
   const provider = health?.provider;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-        <span className="chip" data-active={provider?.mode === "REAL AGENT"}
-              title={provider?.detail}>
-          {provider ? `MODE: ${provider.mode ?? provider.name.toUpperCase()}` : "MODE: …"}
+      <div className="z-telemetry" style={{ marginBottom: "1rem" }} aria-label="Turn telemetry">
+        <span className="z-telemetry-item" title={provider?.detail}>
+          PROVIDER <b>{provider ? (provider.mode ?? provider.name.toUpperCase()) : "…"}</b>
         </span>
-        {provider && (
-          <span className="chip">PROVIDER: {provider.name.toUpperCase()}</span>
+        {provider?.model && (
+          <span className="z-telemetry-item">MODEL <b>{provider.model}</b></span>
         )}
-        {provider?.model && <span className="chip">{provider.model}</span>}
-        <span className="chip">THREAD: {threadId}</span>
+        <span className="z-telemetry-item">THREAD <b>{threadId}</b></span>
         {health && (
-          <span className="chip">
-            MEMORY: {health.vector.mode === "semantic" ? "CHROMA + LOCAL EMBEDDINGS" : "KEYWORD FALLBACK"}
+          <span className="z-telemetry-item" title="Memory retrieval mode">
+            RETRIEVAL <b>{health.vector.mode === "semantic" ? "SEMANTIC" : "KEYWORD"}</b>
           </span>
         )}
       </div>
@@ -157,10 +179,12 @@ export default function Chat({ threadId }: { threadId: string }) {
                     alignContent: "start", paddingRight: "0.25rem", minHeight: 220 }}>
         {turns.length === 0 && (
           <div className="panel" style={{ padding: "1.5rem" }}>
-            <p className="label label-accent">Start here</p>
+            <p className="label label-accent">ZORQ — start here</p>
             <p className="body" style={{ marginTop: "0.5rem" }}>
-              Tell the agent something durable — “I prefer concise technical explanations” —
-              then open a different thread and ask what it knows about you.
+              Tell ZORQ something durable — “I prefer concise technical explanations” —
+              then open a different thread and ask what it knows about you. Memory is
+              governed by <span style={{ color: "var(--accent)" }}>MEMORY//OS</span>, the
+              canonical memory subsystem.
             </p>
           </div>
         )}
@@ -170,8 +194,11 @@ export default function Chat({ threadId }: { threadId: string }) {
             justifySelf: t.role === "user" ? "end" : "start",
             maxWidth: "min(640px, 92%)",
           }}>
-            <p className="label" style={{ marginBottom: "0.4rem" }}>
-              {t.role === "user" ? "You" : "MEMORY//OS"}
+            <p className="label" style={{
+              marginBottom: "0.4rem", fontFamily: "var(--mono)", letterSpacing: "0.2em",
+              color: t.role === "user" ? "var(--z-ink-3)" : "var(--z-accent)",
+            }}>
+              {t.role === "user" ? "YOU" : "ZORQ"}
             </p>
             <div className="panel" style={{
               padding: "0.9rem 1.1rem",
@@ -240,32 +267,43 @@ export default function Chat({ threadId }: { threadId: string }) {
         <div ref={endRef} />
       </div>
 
+      {/*
+        ZORQ command console — the primary interaction surface. Enter submits;
+        the submit affordance is a compact system control, not a consumer CTA.
+        Voice remains truthful: the browser SpeechRecognition fallback is
+        labeled as such until the real voice runtime (Phase 3F) exists.
+      */}
       <form onSubmit={(e) => { e.preventDefault(); void send(); }}
-            style={{ display: "flex", gap: "0.6rem", marginTop: "1.2rem", flexWrap: "wrap" }}>
-        <label htmlFor="chat-input" className="sr-only">Message the agent</label>
-        <input id="chat-input" className="field" value={input} disabled={busy}
+            className="z-console" style={{ marginTop: "1.2rem" }}>
+        <label htmlFor="chat-input" className="z-console-label">ASK ZORQ</label>
+        <input id="chat-input" className="z-console-input" value={input} disabled={busy}
+               size={1}
                onChange={(e) => { setInput(e.target.value); setInputMode("text"); }}
-               placeholder="Speak or type naturally…"
-               style={{ flex: "1 1 240px" }} />
+               placeholder="Type or speak naturally — Enter to submit"
+               aria-label="Message ZORQ" autoComplete="off" />
         {speech.supported ? (
-          <button className="btn" type="button" disabled={busy}
+          <button className="z-console-btn" type="button" disabled={busy}
                   aria-pressed={speech.listening}
+                  data-listening={speech.listening ? "true" : undefined}
+                  title="Voice input — browser SpeechRecognition fallback (the real voice runtime is Phase 3F)."
+                  aria-label={speech.listening ? "Stop voice input" : "Start voice input"}
                   onClick={() => {
                     setInputMode("voice");
                     if (speech.listening) speech.stop(); else speech.start();
                   }}>
-            {speech.listening ? "Stop listening" : "Microphone"}
+            {speech.listening ? "◉ MIC" : "◇ MIC"}
           </button>
         ) : (
-          <span className="chip" title="Browser speech recognition is unavailable; text uses the same cognitive pipeline.">
-            MIC NOT AVAILABLE
+          <span className="z-console-btn" title="Browser speech recognition is unavailable; text uses the same cognitive pipeline."
+                aria-label="Microphone unavailable" style={{ cursor: "default" }}>
+            MIC N/A
           </span>
         )}
-        <button className="btn btn-primary" type="submit" disabled={busy || !input.trim()}
-                data-cursor="cta">
-          Send
+        <button className="z-console-btn" type="submit" disabled={busy || !input.trim()}
+                aria-label="Submit (Enter)" title="Submit — Enter">
+          ⏎ ENTER
         </button>
-        {speech.error && <p className="body" style={{ flexBasis: "100%", color: "#ff8a7a", margin: 0 }}>{speech.error}</p>}
+        {speech.error && <p className="body" style={{ flexBasis: "100%", color: "var(--z-fail)", margin: 0 }}>{speech.error}</p>}
       </form>
     </div>
   );

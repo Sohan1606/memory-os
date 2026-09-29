@@ -75,6 +75,11 @@ docs/       Architecture, memory design, API, setup, testing, design notes
 # Terminal 1
 cd backend && python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+# Required for the ZORQ state facade (capabilities/actions/audit/devices/
+# observatory surfaces): install the zroq-core package from the repo root
+# into the SAME virtualenv, or those surfaces render their honest
+# "unavailable" state instead of live registry data.
+pip install -e ..
 python -m uvicorn app.main:app --port 8000
 
 # Terminal 2
@@ -84,6 +89,40 @@ cd frontend && npm ci && npm run dev
 Open <http://localhost:3000>. Windows instructions: [`docs/SETUP.md`](docs/SETUP.md).
 
 First run downloads the ~80 MB MiniLM ONNX embedding model once and caches it.
+
+## ZORQ control plane (merged tree)
+
+This repository also contains **ZORQ** — an evidence-first control plane built
+around and above MEMORY//OS (package `zroq` 0.3.2, `src/zroq/`). MEMORY//OS
+remains the canonical memory and governance subsystem; ZORQ never replaces it.
+
+Current state, all test-verified on this tree:
+
+- **Action Plane** — authorization/session/grant/capability/confirmation →
+  immutable ActionSnapshot → one-use lease → device execution → verification →
+  audit. Confidence is never authorization; memory never authorizes action.
+- **Personal Continuity Engine** — owner-scoped source archive, derived
+  memories, timeline, temporal recall, Memory Firewall.
+- **Production MEMORY//OS adapter (Phase 3B.2)** — the continuity engine's
+  canonical store is the real MEMORY//OS backend, in process: governed
+  memories through the backend policy engine and `MemoryService`, raw sources
+  in the backend `messages`/`conversations` tables, owner-isolated retrieval,
+  deletion propagation with truthful reporting. The local ZORQ store is a
+  derived view only. `src/zroq/adapters/memoryos_v10.py`; implementation and
+  verification: [`docs/zorq/ZORQ-PHASE3B2-IMPLEMENTATION.md`](docs/zorq/ZORQ-PHASE3B2-IMPLEMENTATION.md).
+
+Run the ZORQ suite with:
+
+```bash
+python -m unittest discover -s tests   # 276 tests; Windows-only class self-skips on Linux
+```
+
+ZORQ design documents, phase verifications, and the master implementation
+specification live in [`docs/zorq/`](docs/zorq/). The frontend is the ZORQ
+control surface (Phase Z-UI.1): workspace, memory, actions, capabilities,
+audit, devices, system, and observatory — all rendered from truthful backend
+state, with MEMORY//OS remaining the canonical memory and governance
+subsystem underneath.
 
 ## V10.2 real-model gate
 

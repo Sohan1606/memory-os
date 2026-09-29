@@ -52,3 +52,7 @@ docs/screenshots/
 Thumbs.db
 .coverage
 *.jsonl
+
+# ZORQ restricted internal records — NEVER commit (public repository)
+# Contains the internal identity definition (master spec §1.3, B-31, DQ-20)
+docs/zorq/internal/

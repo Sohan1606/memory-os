@@ -14,23 +14,25 @@ const UNKNOWN = new Set([
 ]);
 
 export function tone(value: string): { fg: string; bg: string; border: string } {
+  /* ZORQ instrument palette: vermilion = active system signal,
+     cyan = established information, warm amber = attention (sparing),
+     red = negative, cool gray = structure/unknown. */
   const v = value.toUpperCase();
-  if (v === "ACTIVE" || v === "TRUSTED" || v === "RELIABLE" ||
-      v === "WELL CALIBRATED") {
-    return { fg: "var(--accent)", bg: "var(--accent-dim)", border: "var(--accent-line)" };
+  if (v === "ACTIVE") {
+    return { fg: "var(--z-accent)", bg: "var(--z-accent-soft)", border: "var(--z-accent-line)" };
   }
-  if (v === "REAL AGENT") {
+  if (v === "TRUSTED" || v === "RELIABLE" || v === "WELL CALIBRATED" || v === "REAL AGENT") {
     return { fg: "var(--accent)", bg: "var(--accent-dim)", border: "var(--accent-line)" };
   }
   if (v === "DEGRADED" || v === "MIXED" || v === "UNCERTAIN" ||
       v === "REASONABLE" || v === "CONTEXTUAL") {
-    return { fg: "#e8c37a", bg: "rgba(232,195,122,0.10)", border: "rgba(232,195,122,0.32)" };
+    return { fg: "var(--z-warn)", bg: "var(--z-warn-soft)", border: "var(--z-warn-line)" };
   }
   if (v === "CONTRADICTED" || v === "UNRELIABLE" || v === "POORLY CALIBRATED" ||
       v === "AT_RISK" || v === "AT RISK") {
-    return { fg: "#e88a7a", bg: "rgba(232,138,122,0.10)", border: "rgba(232,138,122,0.32)" };
+    return { fg: "var(--z-fail)", bg: "var(--z-fail-soft)", border: "var(--z-fail-line)" };
   }
-  return { fg: "var(--muted)", bg: "rgba(244,241,234,0.04)", border: "var(--line)" };
+  return { fg: "var(--muted)", bg: "rgba(223,227,232,0.04)", border: "var(--line)" };
 }
 
 export function StateBadge({ value, title }: { value: string; title?: string }) {
@@ -58,7 +60,7 @@ export function Panel({ title, hint, right, children, style }: {
   return (
     <section style={{
       border: "1px solid var(--line)", background: "var(--graphite-900)",
-      borderRadius: 6, padding: "1.25rem 1.35rem", minWidth: 0, ...style,
+      borderRadius: 3, padding: "1.15rem 1.3rem", minWidth: 0, ...style,
     }}>
       <header style={{
         display: "flex", alignItems: "baseline", justifyContent: "space-between",

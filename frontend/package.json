@@ -1,15 +1,14 @@
 {
-  "name": "memory-os-showcase",
+  "name": "zorq-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "MEMORY//OS - cinematic frontend for a local-first AI agent with long-term memory.",
+  "description": "ZORQ frontend - the control surface for a governed personal intelligence system. Memory and governance by MEMORY//OS.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
-    "frames": "node scripts/generate-frames.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "next": "15.5.25",

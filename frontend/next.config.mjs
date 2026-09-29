@@ -19,6 +19,12 @@ const nextConfig = {
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API}/api/:path*` }];
   },
+  // /architecture was transformed into /system (Z-UI.1): permanent redirect
+  // keeps existing links working. The stack explainer component is preserved
+  // and composed into /system.
+  async redirects() {
+    return [{ source: "/architecture", destination: "/system", permanent: false }];
+  },
 };
 
 export default nextConfig;

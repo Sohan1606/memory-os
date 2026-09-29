@@ -1,8 +1,15 @@
 # ZORQ MEMORY//OS Adapter Implementation v1
 
-**Status:** IMPLEMENTED as a versioned documented adapter harness.
-**Real MEMORY//OS v10.2.0 source/API:** NOT FOUND in accessible environment.
-**Production integration:** BLOCKED BY ENVIRONMENT / NOT VERIFIED.
+**Status:** SUPERSEDED by Phase 3B.2 — see [`ZORQ-PHASE3B2-IMPLEMENTATION.md`](ZORQ-PHASE3B2-IMPLEMENTATION.md).
+**Real MEMORY//OS v10.2.0 source/API:** FOUND in the canonical repository (`backend/`); production adapter implemented and verified (Phase 3B.2).
+**Production integration:** IMPLEMENTED (`src/zroq/adapters/memoryos_v10.py`) — verification in [`ZORQ-PHASE3B2-VERIFICATION.md`](ZORQ-PHASE3B2-VERIFICATION.md).
+
+> Historical note (preserved for provenance): at the time this document was
+> written, the real MEMORY//OS backend was not present in the working
+> environment, so only the documented-contract harness below could be
+> implemented. Phase 3B.2 replaced the harness as the production authority;
+> `DocumentedMemoryOSAdapter` is retained explicitly relabeled as the
+> fallback/local-harness mode.
 
 ## Environment search result
 

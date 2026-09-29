@@ -36,8 +36,11 @@ EXCLUDED_SUFFIXES = {
 
 # Runtime data directories: databases, vector stores and their WAL/SHM
 # sidecars are generated state, never release content.
+# docs/zorq/internal/ holds the protected internal identity record (git-ignored
+# by design, see .gitignore); it must NEVER ship in any package.
 EXCLUDED_DIR_PATHS = {
     "backend/data",
+    "docs/zorq/internal",
 }
 
 # SQLite sidecars do not have a clean suffix (`foo.sqlite3-wal`), so they are

@@ -56,6 +56,7 @@ from .security.errors import (E_CSRF, E_FORBIDDEN, E_RATE_LIMITED,
 from .security.identity import AuthError, AuthorizationError
 from .security.observability import redact
 from .security.principal import Principal
+from .zorq_facade import router as zorq_router
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -76,6 +77,10 @@ app.add_middleware(
     allow_credentials=settings.cors_origins.strip() != "*",
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# ZORQ state facade (Phase Z-UI.1 WP-UI.1, DQ-16): GET-only, read-mostly,
+# fail-closed endpoints exposing authoritative ZORQ state for the frontend.
+app.include_router(zorq_router)
 
 
 def rt() -> Runtime:

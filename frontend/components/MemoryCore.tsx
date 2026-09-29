@@ -93,14 +93,14 @@ export default function MemoryCore({ height = "100svh", intensity = 1, interacti
         const x = cx + Math.cos(a) * p.d * unit + px * 0.3;
         const y = cy + Math.sin(a) * p.d * unit * 0.45 + py * 0.3;
         ctx.globalAlpha = p.o * intensity;
-        ctx.fillStyle = "#f4f1ea";
+        ctx.fillStyle = "#dfe3e8";
         ctx.beginPath();
         ctx.arc(x, y, p.s, 0, Math.PI * 2);
         ctx.fill();
       }
 
       // relationship edges
-      ctx.strokeStyle = "#6ee7d7";
+      ctx.strokeStyle = "#45d4e0";
       for (let i = 0; i < pts.length; i++) {
         for (let j = i + 1; j < pts.length; j++) {
           if (Math.abs(pts[i].n.layer - pts[j].n.layer) > 1) continue;
@@ -146,7 +146,7 @@ export default function MemoryCore({ height = "100svh", intensity = 1, interacti
       pts.sort((a, b) => a.depth - b.depth);
       for (const p of pts) {
         ctx.globalAlpha = (0.25 + p.depth * 0.7) * intensity;
-        ctx.fillStyle = p.n.layer % 2 === 0 ? "#6ee7d7" : "#f4f1ea";
+        ctx.fillStyle = p.n.layer % 2 === 0 ? "#45d4e0" : "#dfe3e8";
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.n.size * (0.75 + p.depth * 0.5), 0, Math.PI * 2);
         ctx.fill();

@@ -5,19 +5,24 @@
    ============================================================ */
 
 :root {
-  --black: #050506;
-  --graphite-900: #0a0a0d;
-  --graphite-800: #101014;
-  --graphite-700: #17171d;
-  --graphite-600: #202028;
-  --line: rgba(244, 241, 234, 0.09);
-  --line-strong: rgba(244, 241, 234, 0.18);
-  --warm: #f4f1ea;
-  --silver: #a8a8b3;
-  --muted: #6c6c79;
-  --accent: #6ee7d7;
-  --accent-dim: rgba(110, 231, 215, 0.14);
-  --accent-line: rgba(110, 231, 215, 0.38);
+  /* ZORQ system-intelligence console foundation: near-black with a faint
+     red undertone; burgundy structural surfaces; cool-gray linework.
+     The legacy names are kept (they drive every pre-existing component);
+     only their values join the new visual system. */
+  --black: #070506;
+  --graphite-900: #140b0f;   /* deep burgundy surface */
+  --graphite-800: #1a0f14;
+  --graphite-700: #221319;
+  --graphite-600: #2e1a21;
+  --line: rgba(223, 227, 232, 0.09);
+  --line-strong: rgba(223, 227, 232, 0.19);
+  --warm: #dfe3e8;           /* cool light-gray primary text */
+  --silver: #a9b0ba;
+  --muted: #737d89;
+  /* MEMORY//OS subsystem accent joins the cyan informational family */
+  --accent: #45d4e0;
+  --accent-dim: rgba(69, 212, 224, 0.12);
+  --accent-line: rgba(69, 212, 224, 0.36);
 
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
@@ -37,7 +42,12 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--black);
+  background:
+    radial-gradient(1100px 500px at 50% -8%, rgba(229, 83, 63, 0.045), transparent 62%),
+    linear-gradient(rgba(223, 227, 232, 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(223, 227, 232, 0.012) 1px, transparent 1px),
+    var(--black);
+  background-attachment: fixed;
   color: var(--warm);
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
@@ -177,11 +187,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .skip-link:focus { left: 1rem; top: 1rem; }
 
-/* custom cursor hides the native one only on fine pointers */
-@media (pointer: fine) {
-  body.cursor-active, body.cursor-active * { cursor: none !important; }
-}
-
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: var(--black); }
 ::-webkit-scrollbar-thumb { background: var(--graphite-600); }
@@ -192,19 +197,435 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 
-/* ---- section shell & reveal ------------------------------------------- */
-.section { max-width: none; }
-.section-inner {
-  max-width: var(--section-max, 1180px);
-  margin: 0 auto;
-  opacity: 0;
-  transform: translateY(28px);
-  transition: opacity 1s var(--ease), transform 1s var(--ease);
-}
-.section[data-shown="true"] .section-inner { opacity: 1; transform: none; }
+/* ---- shared text scale (section shell retired in Z-UI.1 WP-UI-8) ------ */
 .body-lg { font-size: clamp(1.0625rem, 1.5vw, 1.25rem); color: var(--silver); }
 .rule { height: 1px; background: var(--line); border: 0; margin: 0; }
 
+/* ============================================================
+   ZORQ design system (Phase Z-UI.1)
+   "The instrument": calm dark field, typographic hierarchy,
+   hairline structure, one signal accent (amber), monospaced
+   instrument readouts, motion only as state feedback.
+   The existing MEMORY//OS accent (teal) is retained INSIDE
+   memory surfaces — MEMORY//OS stays visible as the memory
+   authority (DQ-17). Two accents, two meanings, never mixed.
+   ============================================================ */
+
+:root {
+  /* ZORQ instrument palette (visual-system transformation).
+     VERMILION = primary active system signal (identity, interaction,
+     authority boundary, ongoing operations).
+     CYAN = informational / telemetry / analysis (verified facts, memory,
+     cognition evidence).
+     Cool gray = structure and secondary information. Never a rainbow. */
+  --z-accent: #e5533f;        /* vermilion */
+  --z-accent-soft: rgba(229, 83, 63, 0.11);
+  --z-accent-line: rgba(229, 83, 63, 0.42);
+  --z-accent-bright: #f26a55;
+
+  /* Semantic state colors (always paired with glyph + label, never color-only) */
+  --z-ok: #45d4e0;            /* cyan — established information */
+  --z-ok-soft: rgba(69, 212, 224, 0.10);   --z-ok-line: rgba(69, 212, 224, 0.34);
+  --z-warn: #d9a03f;          --z-warn-soft: rgba(217, 160, 63, 0.10); --z-warn-line: rgba(217, 160, 63, 0.36);
+  --z-fail: #ff5c4d;          --z-fail-soft: rgba(255, 92, 77, 0.10);  --z-fail-line: rgba(255, 92, 77, 0.38);
+  --z-unknown: #9aa0b5;       --z-unknown-soft: rgba(154, 160, 181, 0.08); --z-unknown-line: rgba(154, 160, 181, 0.3);
+  --z-offline: #7f96a8;       --z-offline-soft: rgba(127, 150, 168, 0.09); --z-offline-line: rgba(127, 150, 168, 0.32);
+
+  /* Surfaces & structure — burgundy instrument surfaces on near-black */
+  --z-field: #0d0709;
+  --z-surface-1: #150c10;
+  --z-surface-2: #1b1016;
+  --z-line: rgba(223, 227, 232, 0.09);
+  --z-line-strong: rgba(223, 227, 232, 0.2);
+  --z-ink: #dfe3e8;
+  --z-ink-2: #a9b0ba;
+  --z-ink-3: #737d89;
+
+  --z-radius: 3px;
+  --z-dur: 0.18s;
+  --z-ease: cubic-bezier(0.25, 1, 0.4, 1);
+}
+
+/* ------------------------------------------------- ZORQ state tokens */
+.z-state {
+  display: inline-flex; align-items: center; gap: 0.42rem;
+  padding: 0.24rem 0.6rem; border-radius: 4px;
+  font-family: var(--mono); font-size: 0.64rem; font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+  border: 1px solid; line-height: 1;
+}
+.z-state .z-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor;
+}
+.z-state[data-tone="ok"]        { color: var(--z-ok);       background: var(--z-ok-soft);       border-color: var(--z-ok-line); }
+.z-state[data-tone="active"]    { color: var(--z-accent);   background: var(--z-accent-soft);   border-color: var(--z-accent-line); }
+.z-state[data-tone="warn"]      { color: var(--z-warn);     background: var(--z-warn-soft);     border-color: var(--z-warn-line); }
+.z-state[data-tone="fail"]      { color: var(--z-fail);     background: var(--z-fail-soft);     border-color: var(--z-fail-line); }
+.z-state[data-tone="unknown"]   { color: var(--z-unknown);  background: var(--z-unknown-soft);  border-color: var(--z-unknown-line); }
+.z-state[data-tone="off"]       { color: var(--z-ink-3);    background: rgba(244, 241, 234, 0.04); border-color: var(--z-line-strong); }
+.z-state[data-tone="offline"]   { color: var(--z-offline);  background: var(--z-offline-soft);  border-color: var(--z-offline-line); }
+/* Hollow markers for non-affirmative states — visually never "solid success" */
+.z-state[data-hollow="true"] .z-dot { background: transparent; border: 1px solid currentColor; width: 5px; height: 5px; }
+.z-state[data-dashed="true"] { border-style: dashed; }
+/* Active pulse — communicates ongoing work; disabled under reduced motion */
+.z-state[data-pulse="true"] .z-dot { animation: z-pulse 1.6s var(--z-ease) infinite; }
+@keyframes z-pulse {
+  0%, 100% { opacity: 1; } 50% { opacity: 0.25; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .section-inner { opacity: 1; transform: none; transition: none; }
+  .z-state[data-pulse="true"] .z-dot { animation: none; }
+}
+
+/* ---------------------------------------------------- ZORQ panels */
+.z-panel {
+  position: relative;
+  border: 1px solid var(--z-line); border-radius: var(--z-radius);
+  background: var(--z-surface-1); padding: 1.05rem 1.2rem; min-width: 0;
+  transition: border-color var(--z-dur) var(--z-ease);
+}
+.z-panel:hover { border-color: var(--z-line-strong); }
+/* instrument corner ticks */
+.z-panel::before, .z-panel::after {
+  content: ""; position: absolute; width: 8px; height: 8px; pointer-events: none;
+  border: 0 solid var(--z-line-strong);
+}
+.z-panel::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.z-panel::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+.z-panel-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 1rem; margin-bottom: 0.85rem;
+}
+.z-panel-title {
+  font-family: var(--mono); font-size: 0.66rem; font-weight: 500;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--z-ink-2); margin: 0;
+}
+.z-panel-hint { font-size: 0.78rem; color: var(--z-ink-3); margin: 0 0 0.9rem; line-height: 1.5; }
+
+/* ------------------------------------------------ ZORQ instrument readouts */
+.z-readout {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 1rem; padding: 0.5rem 0;
+  border-bottom: 1px solid var(--z-line);
+}
+.z-readout:last-child { border-bottom: 0; }
+.z-readout-key {
+  font-family: var(--mono); font-size: 0.63rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--z-ink-3);
+}
+.z-readout-val {
+  font-family: var(--mono); font-size: 0.78rem; color: var(--z-ink);
+  text-align: right; overflow-wrap: anywhere;
+}
+.z-readout-val[data-muted="true"] { color: var(--z-ink-3); }
+
+/* ------------------------------------------------------ ZORQ page shell */
+.z-page {
+  max-width: 1180px; margin: 0 auto;
+  padding: calc(var(--nav-h, 5rem) + 2.25rem) var(--pad) 4rem;
+}
+.z-page-title {
+  font-family: var(--mono); font-size: clamp(1.25rem, 2vw, 1.55rem); font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase; line-height: 1.1; margin: 0;
+  color: var(--z-ink);
+}
+.z-page-kicker {
+  font-family: var(--mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.26em;
+  text-transform: uppercase; color: var(--z-accent); margin: 0 0 0.6rem;
+}
+.z-page-lede { font-size: 0.95rem; line-height: 1.6; color: var(--z-ink-3); margin: 0.8rem 0 0; max-width: 62ch; }
+.z-grid { display: grid; gap: 1rem; }
+.z-grid[data-cols="2"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+.z-grid[data-cols="3"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.z-grid[data-cols="4"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+
+/* --------------------------------------------------------- ZORQ nav */
+.z-nav-link {
+  font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em;
+  text-transform: uppercase; text-decoration: none; color: var(--z-ink-3);
+  padding: 0.4rem 0.1rem; border-bottom: 1px solid transparent;
+  transition: color var(--z-dur) var(--z-ease), border-color var(--z-dur) var(--z-ease);
+}
+.z-nav-link:hover { color: var(--z-ink); }
+.z-nav-link[aria-current="page"] { color: var(--z-accent); border-bottom-color: var(--z-accent-line); }
+.z-nav-group {
+  font-family: var(--mono); font-size: 0.56rem; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--z-ink-3); opacity: 0.7; margin: 0 0 0.35rem;
+}
+.z-chip {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.08em;
+  color: var(--z-ink-2); text-decoration: none;
+  border: 1px solid var(--z-line-strong); border-radius: 999px; padding: 0.34rem 0.8rem;
+  transition: border-color var(--z-dur) var(--z-ease), color var(--z-dur) var(--z-ease);
+  text-transform: uppercase;
+}
+.z-chip:hover { border-color: var(--z-accent-line); color: var(--z-accent); }
+
+/* -------------------------------------------------- lifecycle stepper */
+.z-steps { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.z-step {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--z-ink-3);
+  border: 1px solid var(--z-line); border-radius: 4px; padding: 0.3rem 0.6rem;
+}
+.z-step[data-idx]::before {
+  content: attr(data-idx); color: var(--z-accent); font-size: 0.56rem; opacity: 0.8;
+}
+.z-step[data-state="current"] { color: var(--z-accent); border-color: var(--z-accent-line); background: var(--z-accent-soft); }
+.z-arrow { color: var(--z-ink-3); opacity: 0.5; font-size: 0.6rem; }
+
+/* ---------------------------------------------------- condition states */
+.z-condition {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.55rem;
+  border: 1px dashed var(--z-line-strong); border-radius: var(--z-radius);
+  padding: 1.35rem 1.4rem; color: var(--z-ink-3);
+}
+.z-condition-label {
+  font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.z-condition-note { font-size: 0.82rem; line-height: 1.55; margin: 0; }
+.z-skeleton {
+  border-radius: 4px; background: linear-gradient(90deg, var(--z-line) 25%, var(--z-line-strong) 50%, var(--z-line) 75%);
+  background-size: 200% 100%; animation: z-shimmer 1.4s linear infinite;
+}
+@keyframes z-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .z-skeleton { animation: none; } }
+
+/* -------------------------------------------------------- ZORQ focus */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--z-accent); outline-offset: 2px; border-radius: 3px;
+}
+
+/* ---------------------------------------------- ZORQ workbench (Z-UI.1) */
+.z-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 1.1rem;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .z-workbench { grid-template-columns: 1fr; }
+}
+
+/* ---------------------- ZORQ responsive navigation (Z-UI.1 WP-UI-7) ----- */
+.nav-desktop { display: none; }
+.nav-mobile-status { display: flex; align-items: center; gap: 0.6rem; }
+@media (min-width: 1080px) {
+  .nav-desktop { display: flex; align-items: center; gap: 1.6rem; }
+  .nav-mobile-status { display: none; }
+}
+
+/* ------------------- ZORQ neutral metadata badge (refinement MUST-FIX 4) */
+.z-meta {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--mono); font-size: 0.62rem; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--z-ink-2);
+  border: 1px solid var(--z-line-strong);
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  background: transparent;
+  white-space: nowrap;
+}
+.z-meta[data-muted="true"] { color: var(--z-ink-3); border-style: dashed; }
+
+/* COMPLETED — finished, outcome not established (distinct from VERIFIED) */
+.z-state[data-tone="complete"] {
+  color: var(--z-warn);
+  border-color: var(--z-warn-line);
+}
+
+/* --------------- ZORQ intelligence rail (signature pattern, refinement) - */
+.z-rail { min-width: 0; }
+.z-rail-track {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 0.3rem 0; row-gap: 0.55rem;
+}
+.z-rail-item { display: inline-flex; align-items: center; }
+.z-rail-stage {
+  display: inline-flex; align-items: center; gap: 0.42rem;
+  font-family: var(--mono); font-size: 0.6rem; font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 0.28rem 0.55rem; border: 1px solid var(--z-line-strong);
+  border-radius: 4px; color: var(--z-ink-3); white-space: nowrap;
+}
+.z-rail-marker {
+  width: 6px; height: 6px; flex: none; border-radius: 1px;
+  background: transparent; border: 1px solid var(--z-ink-3);
+  transform: rotate(45deg);
+}
+.z-rail-stage[data-state="evidenced"] {
+  color: var(--z-accent); border-color: var(--z-accent-line);
+  background: var(--z-accent-soft);
+}
+.z-rail-stage[data-state="evidenced"] .z-rail-marker {
+  background: var(--z-accent); border-color: var(--z-accent);
+}
+.z-rail-stage[data-state="working"] {
+  color: var(--z-accent); border-color: var(--z-accent-line);
+}
+.z-rail-stage[data-state="working"] .z-rail-marker { animation: z-pulse 1.4s var(--z-ease) infinite; }
+.z-rail-stage[data-state="dormant"] { border-style: dashed; }
+.z-rail-link {
+  width: 14px; height: 1px; background: var(--z-line-strong); flex: none;
+}
+.z-rail-gate {
+  font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
+  color: var(--z-ink-2); padding: 0 0.4rem 0 0.3rem;
+  border-left: 2px solid var(--z-accent-line);
+  margin-left: 0.35rem; line-height: 1;
+}
+.z-rail-note {
+  margin: 0.7rem 0 0; font-size: 0.7rem; color: var(--z-ink-3); line-height: 1.5;
+}
+@media (prefers-reduced-motion: reduce) {
+  .z-rail-stage[data-state="working"] .z-rail-marker { animation: none; }
+}
+
+/* ---------------- ZORQ workspace band (home, refinement) ----------------- */
+.z-workspace-band {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1.6rem;
+  border: 1px solid var(--z-accent-line); border-radius: var(--z-radius);
+  background: linear-gradient(180deg, var(--z-accent-soft), transparent 70%);
+  padding: clamp(1.1rem, 2.4vw, 1.7rem) clamp(1.1rem, 2.4vw, 1.9rem);
+  text-decoration: none;
+  transition: border-color var(--z-dur) var(--z-ease);
+}
+.z-workspace-band:hover { border-color: var(--z-accent); }
+.z-workspace-band:focus-visible { outline: 2px solid var(--z-accent); outline-offset: 3px; }
+.z-workspace-band > span { display: inline-flex; }
+
+/* rail group labels — intelligence flow vs action gate (semantic refinement) */
+.z-rail-group {
+  font-family: var(--mono); font-size: 0.54rem; font-weight: 600;
+  letter-spacing: 0.18em; color: var(--z-ink-3); opacity: 0.8;
+  padding: 0 0.7rem 0 0.3rem; margin-right: 0.2rem;
+  border-right: 1px solid var(--z-line-strong); align-self: stretch;
+  display: inline-flex; align-items: center; white-space: nowrap;
+}
+
+/* ================= ZORQ INSTRUMENT SYSTEM (visual transformation) ======== */
+
+/* ---- console buttons: technical, compact, no consumer-CTA styling ------ */
+.btn {
+  font-family: var(--mono); font-size: 0.62rem; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  border: 1px solid var(--z-line-strong); border-radius: 2px;
+  background: var(--z-surface-2); color: var(--z-ink-2);
+  transition: border-color var(--z-dur) var(--z-ease), color var(--z-dur) var(--z-ease);
+}
+.btn:hover:not(:disabled) { border-color: var(--z-accent-line); color: var(--z-ink); }
+.btn-primary {
+  border-color: var(--z-accent-line); color: var(--z-accent);
+  background: var(--z-accent-soft);
+}
+.btn-primary:hover:not(:disabled) { border-color: var(--z-accent); color: var(--z-accent-bright); }
+
+/* ---- fields / console inputs ------------------------------------------- */
+.field {
+  font-family: var(--mono); font-size: 0.82rem; color: var(--z-ink);
+  background: var(--z-field); border: 1px solid var(--z-line-strong);
+  border-radius: 2px; outline: none;
+}
+.field:focus { border-color: var(--z-accent-line); box-shadow: 0 0 0 1px var(--z-accent-soft); }
+.field::placeholder { color: var(--z-ink-3); }
+
+/* ---- chips: technical selectors ---------------------------------------- */
+.chip {
+  font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.1em;
+  text-transform: uppercase; border-radius: 2px;
+  border: 1px solid var(--z-line); background: transparent; color: var(--z-ink-3);
+}
+.chip[data-active="true"], .chip[data-active="1"] {
+  border-color: var(--z-accent-line); color: var(--z-accent); background: var(--z-accent-soft);
+}
+
+/* ---- command console (ASK ZORQ) ---------------------------------------- */
+.z-console {
+  display: flex; align-items: stretch; border: 1px solid var(--z-line-strong);
+  border-radius: 3px; background: var(--z-field); overflow: hidden;
+  transition: border-color var(--z-dur) var(--z-ease);
+}
+.z-console:focus-within { border-color: var(--z-accent-line); }
+.z-console-label {
+  display: flex; align-items: center; padding: 0 0.8rem;
+  font-family: var(--mono); font-size: 0.58rem; font-weight: 600;
+  letter-spacing: 0.2em; color: var(--z-accent);
+  border-right: 1px solid var(--z-line); white-space: nowrap;
+}
+.z-console-input {
+  flex: 1; min-width: 0; background: transparent; border: 0; outline: none;
+  font-family: var(--mono); font-size: 0.84rem; color: var(--z-ink);
+  padding: 0.85rem 0.9rem;
+}
+.z-console-input::placeholder { color: var(--z-ink-3); }
+.z-console-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--mono); font-size: 0.58rem; font-weight: 600;
+  letter-spacing: 0.16em; color: var(--z-ink-3);
+  background: transparent; border: 0; border-left: 1px solid var(--z-line);
+  padding: 0 0.95rem; cursor: pointer; min-height: 44px;
+  transition: color var(--z-dur) var(--z-ease), background var(--z-dur) var(--z-ease);
+}
+.z-console-btn:hover:not(:disabled) { color: var(--z-accent); background: var(--z-accent-soft); }
+.z-console-btn:disabled { opacity: 0.35; cursor: default; }
+.z-console-btn[data-listening="true"] { color: var(--z-accent); background: var(--z-accent-soft); }
+
+/* ---- rail flow semantics: cognition = cyan, action = vermilion --------- */
+.z-rail-stage[data-state="evidenced"] {
+  color: var(--z-ok); border-color: var(--z-ok-line); background: var(--z-ok-soft);
+}
+.z-rail-stage[data-state="evidenced"] .z-rail-marker {
+  background: var(--z-ok); border-color: var(--z-ok);
+}
+.z-rail[data-flow="action"] .z-rail-stage[data-state="evidenced"],
+.z-rail-item[data-flow="action"] .z-rail-stage[data-state="evidenced"] {
+  color: var(--z-accent); border-color: var(--z-accent-line); background: var(--z-accent-soft);
+}
+.z-rail-item[data-flow="action"] .z-rail-stage[data-state="evidenced"] .z-rail-marker {
+  background: var(--z-accent); border-color: var(--z-accent);
+}
+.z-rail-gate { color: var(--z-accent); border-left-color: var(--z-accent-line); }
+
+/* ---- selection + focus ------------------------------------------------- */
+::selection { background: rgba(229, 83, 63, 0.28); color: var(--z-ink); }
+:focus-visible { outline: 2px solid var(--z-accent); outline-offset: 2px; }
+
+/* ---- workspace band → instrument console frame -------------------------- */
+.z-workspace-band {
+  border: 1px solid var(--z-accent-line); border-radius: 3px;
+  background:
+    radial-gradient(560px 200px at 1% 0%, rgba(229, 83, 63, 0.08), transparent 70%),
+    var(--z-surface-1);
+}
+
+/* ---- telemetry strip (home / header) ------------------------------------ */
+.z-telemetry {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem; align-items: center;
+  border-top: 1px solid var(--z-line); border-bottom: 1px solid var(--z-line);
+  padding: 0.55rem 0.2rem; font-family: var(--mono); font-size: 0.58rem;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--z-ink-3);
+}
+.z-telemetry-item { display: inline-flex; align-items: baseline; gap: 0.5rem; white-space: nowrap; }
+.z-telemetry-item b { font-weight: 600; color: var(--z-ink-2); letter-spacing: 0.14em; }
+
+/* ---- central intelligence visualization --------------------------------- */
+.z-coreviz { position: relative; max-width: fit-content; margin: 0 auto; }
+.z-coreviz-rotate { animation: z-core-rotate 48s linear infinite; }
+@keyframes z-core-rotate { to { transform: rotate(360deg); } }
+.z-coreviz-pulse { animation: z-core-pulse 1.6s var(--z-ease) infinite; }
+@keyframes z-core-pulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.3; } }
+.z-coreviz-legend {
+  display: flex; flex-wrap: wrap; gap: 0.35rem 1.1rem; justify-content: center;
+  margin-top: 0.7rem; font-family: var(--mono); font-size: 0.54rem;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--z-ink-3);
+}
+.z-coreviz-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.z-coreviz-legend i { width: 8px; height: 2px; display: inline-block; }
+.z-coreviz-count { color: var(--z-ink-2); border: 1px solid var(--z-line); padding: 0.1rem 0.4rem; }
+@media (prefers-reduced-motion: reduce) {
+  .z-coreviz-rotate { animation: none; }
+  .z-coreviz-pulse { animation: none; }
 }

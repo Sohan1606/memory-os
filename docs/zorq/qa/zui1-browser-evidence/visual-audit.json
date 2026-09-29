@@ -1,0 +1,110 @@
+{
+ "/": {
+  "rail": 0,
+  "band": true,
+  "panels": 15,
+  "tokens": 15,
+  "metas": 4,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/workspace": {
+  "rail": 7,
+  "band": false,
+  "panels": 4,
+  "tokens": 2,
+  "metas": 5,
+  "gate": 1,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/memory": {
+  "rail": 0,
+  "band": false,
+  "panels": 2,
+  "tokens": 3,
+  "metas": 3,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/actions": {
+  "rail": 0,
+  "band": false,
+  "panels": 6,
+  "tokens": 23,
+  "metas": 3,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/capabilities": {
+  "rail": 0,
+  "band": false,
+  "panels": 4,
+  "tokens": 25,
+  "metas": 3,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/audit": {
+  "rail": 0,
+  "band": false,
+  "panels": 3,
+  "tokens": 4,
+  "metas": 2,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/devices": {
+  "rail": 0,
+  "band": false,
+  "panels": 6,
+  "tokens": 22,
+  "metas": 2,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/system": {
+  "rail": 0,
+  "band": false,
+  "panels": 8,
+  "tokens": 13,
+  "metas": 3,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "35.2px",
+  "clipped": [],
+  "clippedCount": 0
+ },
+ "/observatory": {
+  "rail": 0,
+  "band": false,
+  "panels": 1,
+  "tokens": 14,
+  "metas": 2,
+  "gate": 0,
+  "accent": "#e3b34c",
+  "h1fs": "80px",
+  "clipped": [],
+  "clippedCount": 0
+ }
+}

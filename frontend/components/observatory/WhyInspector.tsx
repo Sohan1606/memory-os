@@ -171,7 +171,7 @@ export default function WhyInspector({ subject, onClose }: Props) {
                 padding: "0.7rem 0.85rem",
               }}
             >
-              <span style={{ fontFamily: "var(--mono)", fontSize: "0.64rem", color: "#e8c37a", textTransform: "uppercase", display: "block", marginBottom: "0.3rem" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: "0.64rem", color: "var(--z-warn)", textTransform: "uppercase", display: "block", marginBottom: "0.3rem" }}>
                 Historical Truth vs Current State · Correction Event
               </span>
               <p style={{ fontSize: "0.78rem", color: "var(--warm)", margin: "0 0 0.4rem", lineHeight: 1.5 }}>
@@ -245,7 +245,7 @@ export default function WhyInspector({ subject, onClose }: Props) {
                   >
                     <div>
                       <span style={{ fontSize: "0.76rem", color: "var(--warm)", display: "block" }}>{alt.label}</span>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "#e88a7a" }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--z-fail)" }}>
                         Why Rejected: {alt.rejection_reason}
                       </span>
                     </div>
@@ -289,14 +289,14 @@ export default function WhyInspector({ subject, onClose }: Props) {
                     key={`cnt_${i}`}
                     style={{
                       background: "var(--graphite-800)",
-                      borderLeft: "2px solid #e88a7a",
+                      borderLeft: "2px solid var(--z-fail)",
                       border: "1px solid var(--line)",
                       borderRadius: 3,
                       padding: "0.4rem 0.6rem",
                     }}
                   >
                     <span style={{ fontSize: "0.75rem", color: "var(--warm)", display: "block" }}>{ev.content}</span>
-                    <span style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "#e88a7a" }}>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--z-fail)" }}>
                       Counterexample · {ev.source}
                     </span>
                   </div>
