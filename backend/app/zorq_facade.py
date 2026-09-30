@@ -39,7 +39,7 @@ _CORE_STATE: dict[str, Any] | None = None
 
 # Phase attribution for not-yet-implemented capabilities (truthful labels).
 _PHASE_ATTRIBUTION = {
-    "voice": "Phase 3F",
+    "voice": "Phase 3F (3F-min delivered; 3F-full deferred)",
     "multimodal": "future phase",
     "sync": "Phase Z-DIST.1",
     "offline_runtime": "Phase Z-LD.1",
@@ -161,10 +161,16 @@ def _runtime_truth() -> dict[str, Any]:
         "sync_note": f"No synchronization exists yet ({_PHASE_ATTRIBUTION['sync']}).",
         "devices": "CURRENT-DEVICE-ONLY",
         "voice": {
-            "state": "NOT-IMPLEMENTED",
+            "state": "PARTIALLY-IMPLEMENTED",
             "phase": _PHASE_ATTRIBUTION["voice"],
-            "note": "The voice runtime lands in Phase 3F; interaction "
-                    "architecture is prepared, nothing is simulated.",
+            "note": "Phase 3F-min browser voice transport is implemented: "
+                    "speech input via the browser's SpeechRecognition "
+                    "(draft transcript, same submission path as typed text) "
+                    "and tracked speech-synthesis output with local barge-in "
+                    "(stopping speech never cancels generation). Voice grants "
+                    "no identity, authorization, or memory-governance change. "
+                    "Generation-level voice control (3F-full streaming "
+                    "transport) is not implemented.",
         },
         "multimodal": {
             "state": "NOT-IMPLEMENTED",

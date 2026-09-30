@@ -8,3 +8,6 @@ next-env.d.ts
 .env
 .env.local
 .DS_Store
+
+# Phase 3F voice machine test build output
+.voicetest/

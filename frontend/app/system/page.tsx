@@ -76,7 +76,7 @@ export default function SystemPage() {
               <Readout k="Voice input">
                 <StateToken
                   value={health.voice.mode === "browser" ? "BROWSER-FALLBACK" : health.voice.mode.toUpperCase()}
-                  note={`${health.voice.detail} The real voice runtime is Phase 3F.`}
+                  note={`${health.voice.detail} The 3F-min browser voice transport (speech input, tracked speech output, local barge-in) is implemented; browser recognition may send audio to the browser vendor's speech service. 3F-full generation-level voice control is deferred.`}
                 />
               </Readout>
             </>

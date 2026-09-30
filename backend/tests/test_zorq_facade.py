@@ -61,7 +61,12 @@ def test_facade_status_truthful(client):
         assert core["filesystem_posture"] in {"SUPPORTED", "DEGRADED", "UNAVAILABLE"}
         assert body["runtime"]["connection"] == "LOCAL"
         assert body["runtime"]["sync"] == "NOT-CONFIGURED"
-        assert body["runtime"]["voice"]["state"] == "NOT-IMPLEMENTED"
+        # Phase 3F-min: the browser voice transport exists (input + tracked
+        # output + local barge-in); 3F-full generation control does not.
+        # The token remains truthful: partial, never simulated-complete.
+        assert body["runtime"]["voice"]["state"] == "PARTIALLY-IMPLEMENTED"
+        assert "3F-min" in body["runtime"]["voice"]["note"]
+        assert "not implemented" in body["runtime"]["voice"]["note"]
         assert body["runtime"]["multimodal"]["state"] == "NOT-IMPLEMENTED"
         assert body["memory_integration"]["canonical_authority"] == "MEMORY//OS"
         assert len(body["planes"]) == 5

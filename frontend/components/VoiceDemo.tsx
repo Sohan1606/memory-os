@@ -2,37 +2,45 @@
 /**
  * Voice -> memory. Speech (or typed text, when speech is unsupported) flows
  * through exactly the same memory-creation pathway as every other surface.
+ *
+ * Phase 3F-min: driven by the real voice state machine (useVoice). The state
+ * chips show actual machine states — nothing simulated — plus the two memory
+ * phases of this demo's own store call. Voice input here is a draft the user
+ * can edit before storing; nothing is persisted until "Store memory".
  */
 import { useEffect, useRef, useState } from "react";
 
 import { useMemoryStore } from "@/hooks/useMemoryStore";
-import { useSpeech } from "@/hooks/useSpeech";
+import { useVoice } from "@/hooks/useVoice";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
-type Stage = "IDLE" | "LISTENING" | "PROCESSING" | "MEMORY DETECTED" | "MEMORY SAVED" | "RESPONSE";
+type MemoryPhase = "NONE" | "STORING" | "SAVED";
+
+const VOICE_CHIPS = [
+  "IDLE", "REQUESTING_PERMISSION", "LISTENING", "TRANSCRIBING", "ERROR",
+] as const;
 
 export default function VoiceDemo() {
   const { createMemory, health, select } = useMemoryStore();
-  const speech = useSpeech();
+  const voice = useVoice();
   const reduced = useReducedMotion();
 
-  const [stage, setStage] = useState<Stage>("IDLE");
   const [text, setText] = useState("");
+  const [memoryPhase, setMemoryPhase] = useState<MemoryPhase>("NONE");
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
 
+  // Finalized transcript becomes an editable draft (never auto-stored).
   useEffect(() => {
-    if (speech.transcript) setText(speech.transcript);
-  }, [speech.transcript]);
+    if (voice.finalTranscript) {
+      setText(voice.finalTranscript);
+      voice.clearDraft();
+    }
+  }, [voice, voice.finalTranscript]);
 
-  useEffect(() => {
-    if (speech.listening) setStage("LISTENING");
-    else setStage((s) => (s === "LISTENING" ? "IDLE" : s));
-  }, [speech.listening]);
-
-  /* lightweight procedural waveform */
+  /* lightweight procedural waveform — decorative only (aria-hidden) */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -45,11 +53,12 @@ export default function VoiceDemo() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     resize();
+    const active = voice.state === "LISTENING" || voice.state === "TRANSCRIBING"
+      || memoryPhase === "STORING";
     const render = (t: number) => {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       ctx.clearRect(0, 0, w, h);
-      const active = stage === "LISTENING" || stage === "PROCESSING";
       const bars = 48;
       for (let i = 0; i < bars; i++) {
         const x = (i / bars) * w;
@@ -71,42 +80,47 @@ export default function VoiceDemo() {
       rafRef.current = null;
       window.removeEventListener("resize", resize);
     };
-  }, [stage, reduced]);
+  }, [voice.state, memoryPhase, reduced]);
 
   const submit = async () => {
     const content = text.trim();
     if (!content) { setError("Say or type something for the system to remember."); return; }
     setError(null);
     setResult(null);
-    setStage("PROCESSING");
+    setMemoryPhase("STORING");
     try {
-      setStage("MEMORY DETECTED");
       const res = await createMemory(content, undefined, "voice");
-      setStage("MEMORY SAVED");
+      setMemoryPhase("SAVED");
       const verb = res.action === "created" ? "Stored a new memory"
         : res.action === "reinforced" ? "Reinforced an existing memory"
         : "Updated a conflicting memory";
       setResult(`${verb}: “${res.memory.content}” · ${res.memory.category.replace(/_/g, " ")} · v${res.memory.version}`);
       select(res.memory.id);
-      setStage("RESPONSE");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not store that memory.");
-      setStage("IDLE");
+      setMemoryPhase("NONE");
     }
   };
 
-  const stages: Stage[] = ["IDLE", "LISTENING", "PROCESSING", "MEMORY DETECTED", "MEMORY SAVED", "RESPONSE"];
-
   return (
     <div style={{ display: "grid", gap: "1.4rem" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-        {stages.map((s) => (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}
+           aria-label="Voice transport state">
+        {VOICE_CHIPS.map((s) => (
           <span key={s} className="mono" style={{
             padding: "0.35rem 0.65rem", fontSize: "0.5625rem", letterSpacing: "0.14em",
-            border: `1px solid ${stage === s ? "var(--accent-line)" : "var(--line)"}`,
-            color: stage === s ? "var(--accent)" : "var(--muted)",
-            background: stage === s ? "var(--accent-dim)" : "transparent",
-          }}>{s}</span>
+            border: `1px solid ${voice.state === s ? "var(--accent-line)" : "var(--line)"}`,
+            color: voice.state === s ? "var(--accent)" : "var(--muted)",
+            background: voice.state === s ? "var(--accent-dim)" : "transparent",
+          }}>{s.replace(/_/g, " ")}</span>
+        ))}
+        {(["STORING", "SAVED"] as const).map((s) => (
+          <span key={s} className="mono" style={{
+            padding: "0.35rem 0.65rem", fontSize: "0.5625rem", letterSpacing: "0.14em",
+            border: `1px solid ${memoryPhase === s ? "var(--accent-line)" : "var(--line)"}`,
+            color: memoryPhase === s ? "var(--accent)" : "var(--muted)",
+            background: memoryPhase === s ? "var(--accent-dim)" : "transparent",
+          }}>MEMORY {s}</span>
         ))}
       </div>
 
@@ -114,11 +128,18 @@ export default function VoiceDemo() {
               style={{ width: "100%", height: 90, display: "block" }} />
 
       <p className="mono" style={{ color: "var(--muted)" }}>
-        {speech.supported
-          ? "Browser speech recognition available."
+        {voice.supported
+          ? `Browser speech recognition available (${voice.language}). ${voice.sttDisclosure}`
           : "Browser speech recognition unavailable — text mode is fully supported."}
-        {health?.voice?.mode === "whisper" && " Server-side Whisper is configured."}
+        {health?.voice?.mode === "whisper" && " Server-side local Whisper is configured."}
       </p>
+
+      {(voice.state === "LISTENING" || voice.state === "TRANSCRIBING") && (
+        <p className="mono" style={{ color: "var(--muted)", margin: 0 }}>
+          {voice.state === "LISTENING" ? "● REC" : "◈ FINALIZING"} · INTERIM — NOT STORED
+          {voice.interimTranscript ? ` · ${voice.interimTranscript}` : ""}
+        </p>
+      )}
 
       <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
         <label htmlFor="voice-text" className="sr-only">Memory to store</label>
@@ -126,9 +147,17 @@ export default function VoiceDemo() {
                onChange={(e) => setText(e.target.value)}
                placeholder="Remember that I prefer concise explanations."
                style={{ flex: "1 1 260px" }} />
-        {speech.supported && (
-          <button className="btn" onClick={() => (speech.listening ? speech.stop() : speech.start())}>
-            {speech.listening ? "Stop" : "Speak"}
+        {voice.supported && (
+          <button className="btn" type="button"
+                  aria-pressed={voice.state === "LISTENING"}
+                  onClick={() => {
+                    if (voice.state === "LISTENING") voice.stopListening();
+                    else if (voice.state === "REQUESTING_PERMISSION") voice.cancelListening();
+                    else if (voice.state === "IDLE" || voice.state === "ERROR") voice.startListening();
+                  }}>
+            {voice.state === "LISTENING" ? "Stop"
+              : voice.state === "REQUESTING_PERMISSION" ? "Cancel"
+              : "Speak"}
           </button>
         )}
         <button className="btn btn-primary" onClick={() => void submit()} data-cursor="cta">
@@ -136,7 +165,15 @@ export default function VoiceDemo() {
         </button>
       </div>
 
-      {speech.error && <p className="body" style={{ color: "#ff8a7a" }}>{speech.error}</p>}
+      {voice.error && (
+        <p className="body" style={{ color: "#ff8a7a", display: "flex", gap: "0.6rem",
+                                     alignItems: "center", flexWrap: "wrap" }}>
+          {voice.error}
+          <button className="btn" type="button" onClick={() => voice.acknowledgeError()}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {error && <p className="body" style={{ color: "#ff8a7a" }}>{error}</p>}
       {result && (
         <div className="panel" style={{ padding: "1rem 1.2rem", borderColor: "var(--accent-line)" }}>
@@ -144,6 +181,12 @@ export default function VoiceDemo() {
           <p className="body" style={{ color: "var(--warm)", marginTop: "0.4rem" }}>{result}</p>
         </div>
       )}
+      <span className="sr-only" role="status" aria-live="polite">
+        {voice.state === "LISTENING" ? "Microphone listening."
+          : voice.state === "TRANSCRIBING" ? "Finalizing transcript."
+          : memoryPhase === "SAVED" ? "Memory saved."
+          : ""}
+      </span>
     </div>
   );
 }

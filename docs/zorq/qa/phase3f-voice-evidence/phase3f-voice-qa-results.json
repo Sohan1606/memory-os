@@ -1,0 +1,291 @@
+{
+  "checks": [
+    {
+      "name": "telemetry starts AVAILABLE (capability detected, evidence-gated)",
+      "pass": true,
+      "detail": "AVAILABLE"
+    },
+    {
+      "name": "mic control present with truthful STT disclosure",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "REQUESTING_PERMISSION shown before any recognition evidence",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no LISTENING token without recognition evidence",
+      "pass": true,
+      "detail": "AVAILABLE"
+    },
+    {
+      "name": "LISTENING only after real onstart",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "recording indication visible",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "mic aria-pressed reflects listening",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "interim transcript visibly provisional, not in the input",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "final transcript becomes editable draft in the SAME input",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "token returns to AVAILABLE after finalization",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "finished session's handlers are detached (stale events undeliverable)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "empty recognition creates no message and returns to AVAILABLE",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "cancel discards the draft entirely",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "cancel aborts the real recognition transport",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "permission denial \u2192 truthful ERROR with text-mode reassurance",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "ERROR token shown",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "error acknowledged \u2192 AVAILABLE",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "PROCESSING token during the in-flight voice turn",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "speech output offered exactly for the rendered answer",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "utterance text is the final response text (no spoken-only content)",
+      "pass": true,
+      "detail": "Reinforced that as a communication style memory (version 1)."
+    },
+    {
+      "name": "no SPEAKING token before real onstart (no phantom state)",
+      "pass": true,
+      "detail": "PROCESSING"
+    },
+    {
+      "name": "SPEAKING only after real utterance onstart",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-speaking control visible while SPEAKING",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "natural completion returns to AVAILABLE",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "stop-speaking cancels synthesis locally (high-priority path)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "stopping speech fired no network request and cancelled nothing",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "response text fully intact after speech stop",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "stale onend from the cancelled utterance changes nothing",
+      "pass": true,
+      "detail": "AVAILABLE"
+    },
+    {
+      "name": "barge-in opened a NEW recognition session",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "barge-in continuation reaches LISTENING on real evidence",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "barge-in fired no generation-control request (3F-min invariant)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B6: bare spoken 'stop' during barge-in consumed as STOP(target=SPEECH)",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "B6: control utterance produced NO draft in the input",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B6: control utterance fired ZERO /api/chat submissions",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B6: machine returns to AVAILABLE after the control stop",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B6: rendered conversation unchanged by the control stop",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B6 boundary: non-bare barge-in speech becomes a normal editable draft",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "B6 boundary: non-bare utterance did NOT increment the control count",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "0 console errors on the desktop machine pass",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no forbidden identity strings on /workspace",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "MIC N/A shown when recognition is absent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "VOICE \u00b7 UNAVAILABLE token (truthful capability absence)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "text path fully usable without voice",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "0 console errors on the unavailable pass",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "GAP-1 browser STT egress disclosure present on the voice demo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no offline-voice claim anywhere",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "0 console errors with reduced motion",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "0px horizontal overflow on mobile",
+      "pass": true,
+      "detail": "0px"
+    },
+    {
+      "name": "mic control visible on mobile",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "mobile LISTENING on real evidence",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "visibility loss resolves LISTENING \u2192 AVAILABLE (no phantom state)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "0 console errors on mobile",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "mic fully keyboard-operable",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Escape cancels the voice attempt",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "polite live region present for screen readers",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "console_errors": {
+    "desktop-machine": []
+  },
+  "shots": [
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\01-listening.png",
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\02-permission-denied.png",
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\03-speaking.png",
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\04-barge-in-listening.png",
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\05-unavailable.png",
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\06-home-disclosure.png",
+    "docs\\zorq\\qa\\phase3f-voice-evidence\\07-mobile.png"
+  ]
+}

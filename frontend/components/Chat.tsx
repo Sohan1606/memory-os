@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import CognitiveSurface from "@/components/CognitiveSurface";
 import { useMemoryStore } from "@/hooks/useMemoryStore";
-import { useSpeech } from "@/hooks/useSpeech";
+import { useVoice } from "@/hooks/useVoice";
 import { api, ApiError } from "@/lib/api";
 import type { ChatActivity, CognitiveSurfaceState, LiveSurfaceState,
                     RetrievalResult, TurnCognition } from "@/lib/types";
@@ -87,7 +87,16 @@ export default function Chat({
   const [error, setError] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<"text" | "voice">("text");
   const [liveSurface, setLiveSurface] = useState<LiveSurfaceState | null>(null);
-  const speech = useSpeech();
+  const voice = useVoice();
+  // Spec §10 B6: transient screen-reader note when a bare barge-in "stop"
+  // was consumed as STOP(target=SPEECH) instead of becoming a message.
+  const [controlNote, setControlNote] = useState("");
+  useEffect(() => {
+    if (voice.speechStopControls === 0) return;
+    setControlNote("Speech output stopped. Spoken \"stop\" was handled as a speech control and was not sent as a message.");
+    const t = setTimeout(() => setControlNote(""), 4000);
+    return () => clearTimeout(t);
+  }, [voice.speechStopControls]);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,9 +115,15 @@ export default function Chat({
   }, [threadId, onTurn]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [turns]);
+  // A finalized transcript becomes an editable DRAFT in the same input the
+  // user types into (spec §8 TR3/C3). It is submitted only through send().
   useEffect(() => {
-    if (speech.transcript) setInput(speech.transcript);
-  }, [speech.transcript]);
+    if (voice.finalTranscript) {
+      setInput(voice.finalTranscript);
+      setInputMode("voice");
+      voice.clearDraft();
+    }
+  }, [voice, voice.finalTranscript]);
 
   const send = useCallback(async () => {
     const message = input.trim();
@@ -121,6 +136,9 @@ export default function Chat({
     let poll: ReturnType<typeof setInterval> | null = null;
     try {
       const mode = inputMode;
+      // Telemetry mirror only: PROCESSING carries no authority and does not
+      // alter the request (spec §6 C2). Text and voice share this exact path.
+      if (mode === "voice") voice.notifySubmitted();
       const started = await api.startSurfaceTurn(threadId);
       setLiveSurface(started);
       poll = setInterval(() => {
@@ -140,21 +158,23 @@ export default function Chat({
         recalledCount: (res.recalled ?? []).length,
         busy: false,
       });
-      if (mode === "voice" && typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(res.answer));
+      if (mode === "voice") {
+        // Tracked, optional speech output of the exact rendered answer
+        // (spec §9). Unavailable/failed synthesis loses nothing: the text
+        // above is already on screen.
+        voice.speak(res.answer);
       }
       setInputMode("text");
-      speech.reset();
       await refresh();
     } catch (e) {
+      if (inputMode === "voice") voice.notifyTurnDone(false);
       setError(e instanceof ApiError ? e.message : "The agent could not respond.");
     } finally {
       if (poll) clearInterval(poll);
       setLiveSurface(null);
       setBusy(false);
     }
-  }, [input, busy, threadId, refresh, inputMode, speech, onTurn]);
+  }, [input, busy, threadId, refresh, inputMode, voice, onTurn]);
 
   const provider = health?.provider;
 
@@ -173,6 +193,15 @@ export default function Chat({
             RETRIEVAL <b>{health.vector.mode === "semantic" ? "SEMANTIC" : "KEYWORD"}</b>
           </span>
         )}
+        {/* Phase 3F voice telemetry — every token is backed by a real machine
+            transition (spec §17); nothing here is simulated or predictive. */}
+        <span className="z-telemetry-item"
+              data-speech-stop-controls={voice.speechStopControls}
+              title={voice.supported
+                ? `Voice transport state (${voice.language}). ${voice.sttDisclosure}`
+                : "Browser speech recognition is unavailable here; text uses the same pipeline."}>
+          VOICE <b>{voice.telemetry}</b>
+        </span>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", display: "grid", gap: "1.1rem",
@@ -270,28 +299,48 @@ export default function Chat({
       {/*
         ZORQ command console — the primary interaction surface. Enter submits;
         the submit affordance is a compact system control, not a consumer CTA.
-        Voice remains truthful: the browser SpeechRecognition fallback is
-        labeled as such until the real voice runtime (Phase 3F) exists.
+        Phase 3F-min voice transport: the mic is an explicit operational
+        control driven by the voice state machine. Voice never implies
+        authorization; the transcript is a draft submitted through this exact
+        form, identically to typed text.
       */}
       <form onSubmit={(e) => { e.preventDefault(); void send(); }}
-            className="z-console" style={{ marginTop: "1.2rem" }}>
+            className="z-console" style={{ marginTop: "1.2rem" }}
+            onKeyDown={(e) => {
+              // Keyboard cancel of an in-flight voice attempt (a11y §18).
+              if (e.key === "Escape" && (voice.state === "REQUESTING_PERMISSION"
+                  || voice.state === "LISTENING" || voice.state === "TRANSCRIBING")) {
+                e.preventDefault();
+                voice.cancelListening();
+              }
+            }}>
         <label htmlFor="chat-input" className="z-console-label">ASK ZORQ</label>
         <input id="chat-input" className="z-console-input" value={input} disabled={busy}
                size={1}
                onChange={(e) => { setInput(e.target.value); setInputMode("text"); }}
                placeholder="Type or speak naturally — Enter to submit"
                aria-label="Message ZORQ" autoComplete="off" />
-        {speech.supported ? (
-          <button className="z-console-btn" type="button" disabled={busy}
-                  aria-pressed={speech.listening}
-                  data-listening={speech.listening ? "true" : undefined}
-                  title="Voice input — browser SpeechRecognition fallback (the real voice runtime is Phase 3F)."
-                  aria-label={speech.listening ? "Stop voice input" : "Start voice input"}
+        {voice.supported ? (
+          <button className="z-console-btn" type="button"
+                  disabled={busy || voice.state === "TRANSCRIBING" || voice.state === "INTERRUPTING"}
+                  aria-pressed={voice.state === "LISTENING"}
+                  data-listening={voice.state === "LISTENING" ? "true" : undefined}
+                  title={`Voice input (${voice.language}) — ${voice.sttDisclosure}`}
+                  aria-label={
+                    voice.state === "LISTENING" ? "Stop voice input and keep the transcript"
+                    : voice.state === "REQUESTING_PERMISSION" ? "Cancel microphone permission request"
+                    : voice.state === "SPEAKING" ? "Interrupt — stop speech output and talk"
+                    : "Start voice input"}
                   onClick={() => {
-                    setInputMode("voice");
-                    if (speech.listening) speech.stop(); else speech.start();
+                    if (voice.state === "LISTENING") voice.stopListening();
+                    else if (voice.state === "REQUESTING_PERMISSION") voice.cancelListening();
+                    else if (voice.state === "SPEAKING") voice.bargeIn();
+                    else if (voice.state === "IDLE" || voice.state === "ERROR") voice.startListening();
                   }}>
-            {speech.listening ? "◉ MIC" : "◇ MIC"}
+            {voice.state === "LISTENING" ? "◉ MIC"
+              : voice.state === "REQUESTING_PERMISSION" ? "… MIC"
+              : voice.state === "TRANSCRIBING" ? "◈ MIC"
+              : "◇ MIC"}
           </button>
         ) : (
           <span className="z-console-btn" title="Browser speech recognition is unavailable; text uses the same cognitive pipeline."
@@ -299,11 +348,57 @@ export default function Chat({
             MIC N/A
           </span>
         )}
+        {(voice.state === "LISTENING" || voice.state === "TRANSCRIBING") && (
+          <button className="z-console-btn" type="button"
+                  aria-label="Cancel voice input and discard the transcript"
+                  title="Cancel voice input — discards the draft (Esc)"
+                  onClick={() => voice.cancelListening()}>
+            ✕ CANCEL
+          </button>
+        )}
+        {(voice.state === "SPEAKING" || voice.state === "INTERRUPTING") && (
+          <button className="z-console-btn" type="button"
+                  disabled={voice.state === "INTERRUPTING"}
+                  aria-label="Stop speech output"
+                  title="Stop speaking — stops audio only; the response text stays and generation is never cancelled by this control."
+                  onClick={() => voice.stopSpeaking()}>
+            ■ STOP VOICE
+          </button>
+        )}
         <button className="z-console-btn" type="submit" disabled={busy || !input.trim()}
                 aria-label="Submit (Enter)" title="Submit — Enter">
           ⏎ ENTER
         </button>
-        {speech.error && <p className="body" style={{ flexBasis: "100%", color: "var(--z-fail)", margin: 0 }}>{speech.error}</p>}
+        {(voice.state === "LISTENING" || voice.state === "TRANSCRIBING") && (
+          <p className="mono" aria-hidden="true"
+             style={{ flexBasis: "100%", margin: 0, color: "var(--muted)",
+                      fontSize: "0.6875rem", letterSpacing: "0.08em" }}>
+            {voice.state === "LISTENING" ? "● REC" : "◈ FINALIZING"} · INTERIM — NOT SUBMITTED
+            {voice.interimTranscript ? ` · ${voice.interimTranscript}` : ""}
+          </p>
+        )}
+        {voice.error && (
+          <p className="body" style={{ flexBasis: "100%", color: "var(--z-fail)",
+                                       margin: 0, display: "flex", gap: "0.6rem",
+                                       alignItems: "center", flexWrap: "wrap" }}>
+            {voice.error}
+            <button className="z-console-btn" type="button"
+                    aria-label="Dismiss voice error"
+                    onClick={() => voice.acknowledgeError()}>
+              DISMISS
+            </button>
+          </p>
+        )}
+        {/* Screen-reader announcements of real voice transitions (§18). */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {controlNote ? controlNote
+            : voice.state === "LISTENING" ? "Microphone listening."
+            : voice.state === "TRANSCRIBING" ? "Finalizing transcript."
+            : voice.state === "SPEAKING" ? "ZORQ is speaking the response aloud."
+            : voice.state === "INTERRUPTING" ? "Speech output stopped."
+            : voice.state === "ERROR" ? "Voice error. Text mode is fully supported."
+            : ""}
+        </span>
       </form>
     </div>
   );

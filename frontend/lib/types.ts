@@ -155,6 +155,13 @@ export interface Health {
   cognition: { event_types: number; events: number; autonomy: string };
 }
 
+/**
+ * Phase 3F voice transport types — re-exported from the pure state machine
+ * so UI code has one import surface. Voice state is transport truth only;
+ * it never represents conversation, memory, or action authority.
+ */
+export type { VoiceState, VoiceEvent } from "./voiceMachine";
+
 export interface Stats {
   total: number;
   by_category: Record<string, number>;

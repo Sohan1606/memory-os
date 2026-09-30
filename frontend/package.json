@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:voice": "tsc lib/voiceMachine.ts tests/voiceMachine.spec.ts --outDir .voicetest --module commonjs --target es2020 --moduleResolution node --strict --skipLibCheck && node .voicetest/tests/voiceMachine.spec.js"
   },
   "dependencies": {
     "next": "15.5.25",
